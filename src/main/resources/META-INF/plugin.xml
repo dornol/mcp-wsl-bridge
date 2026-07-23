@@ -1,0 +1,17 @@
+<idea-plugin>
+    <id>io.github.dornol.mcpwslbridge</id>
+    <name>MCP WSL Bridge</name>
+    <vendor url="https://github.com/dornol">dornol</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.BridgeSettings"/>
+        <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.McpBridgeService"/>
+        <applicationConfigurable
+                id="io.github.dornol.mcpwslbridge.settings"
+                displayName="MCP WSL Bridge"
+                instance="io.github.dornol.mcpwslbridge.BridgeConfigurable"/>
+    </extensions>
+</idea-plugin>
+
