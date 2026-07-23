@@ -10,8 +10,8 @@
         <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.McpBridgeService"/>
         <applicationConfigurable
                 id="io.github.dornol.mcpwslbridge.settings"
+                parentId="tools"
                 displayName="MCP WSL Bridge"
                 instance="io.github.dornol.mcpwslbridge.BridgeConfigurable"/>
     </extensions>
 </idea-plugin>
-

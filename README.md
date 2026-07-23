@@ -16,13 +16,14 @@ The plugin detects the port saved by the built-in IntelliJ MCP Server and falls 
 2. Open **Settings | Tools | MCP WSL Bridge**.
 3. Select the `vEthernet (WSL)` IPv4 address (the plugin marks likely WSL interfaces).
 4. Enable the bridge and apply settings. The default listener port is `64343`.
-5. In WSL, use its default gateway as the Windows host IP:
+5. In the **WSL Client Configuration** section, choose a WSL distribution and select either **Codex** or **Claude Code**. **Apply to WSL** uses the selected agent's CLI to create or replace the `intellij-wsl-bridge` user configuration. The **Others** tab copies a generic streamable HTTP JSON entry.
+6. In WSL, use its default gateway as the Windows host IP:
 
    ```sh
    ip route show default | awk '{print $3}'
    ```
 
-6. Configure the client with the displayed address and the MCP endpoint appropriate for your IntelliJ version, for example `http://<gateway>:64343/stream`.
+7. Configure another client with the displayed address and the MCP endpoint appropriate for your IntelliJ version, for example `http://<gateway>:64343/stream`.
 
 ## Security
 

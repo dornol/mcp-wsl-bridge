@@ -14,6 +14,7 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
         var targetMode: TargetMode = TargetMode.AUTO,
         var targetHost: String = "127.0.0.1",
         var targetPort: Int = BridgeSettings.DEFAULT_MCP_PORT,
+        var wslDistro: String = "",
     )
 
     enum class TargetMode { AUTO, MANUAL }
