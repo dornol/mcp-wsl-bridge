@@ -2,11 +2,11 @@
 
 ## Before the first Marketplace upload
 
-1. Choose and add an open-source license in `LICENSE`.
+1. Confirm the MIT license in `LICENSE` is appropriate for the release.
 2. Create a JetBrains Marketplace Vendor profile for `dornol`, accept the Developer Agreement, and provide a public vendor contact email.
 3. Create a Marketplace upload token and save it in the GitHub repository as the `PUBLISH_TOKEN` Actions secret.
 4. Build and test the plugin on Windows with a real IntelliJ IDEA 2025.2+ installation and WSL.
-5. Update `pluginVersion` in `gradle.properties`, `CHANGELOG.md`, and the release notes before publishing.
+5. Update `pluginVersion`, `CHANGELOG.md`, and the release notes before publishing a later version.
 
 ## Automated publishing
 
