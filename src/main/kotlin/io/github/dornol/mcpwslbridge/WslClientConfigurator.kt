@@ -47,7 +47,7 @@ object WslClientConfigurator {
     private fun runInWsl(distro: String, command: List<String>): CommandResult {
         require(distro.isNotBlank()) { "Choose a WSL distribution first." }
         val shell = loginShellFor(distro)
-        val shellCommand = command.joinToString(" ")(::shellQuote)
+        val shellCommand = command.joinToString(" ") { shellQuote(it) }
         return execute(listOf("wsl.exe", "-d", distro, "--", shell, "-lic", shellCommand))
     }
 
