@@ -8,6 +8,7 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import java.awt.BorderLayout
+import java.awt.FlowLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
@@ -181,7 +182,9 @@ class BridgeConfigurable : Configurable {
 
     private fun clientActionPanel(description: String, action: () -> Unit): JComponent = JPanel(BorderLayout(4, 4)).apply {
         add(JBLabel(description), BorderLayout.NORTH)
-        add(JButton("Apply to WSL").apply { addActionListener { action() } }, BorderLayout.WEST)
+        add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+            add(JButton("Apply to WSL").apply { addActionListener { action() } })
+        }, BorderLayout.SOUTH)
     }
 
     private fun populateDistributions(selected: String) {

@@ -14,7 +14,11 @@ object WslClientConfigurator {
     fun distributions(): List<String> {
         if (!SystemInfo.isWindows) return emptyList()
         val result = execute(listOf("wsl.exe", "-l", "-q"))
-        return if (result.succeeded) result.output.lineSequence().map(String::trim).filter(String::isNotEmpty).toList() else emptyList()
+        return if (result.succeeded) result.output.lineSequence()
+            .map { it.replace("\u0000", "").trim() }
+            .filter(String::isNotEmpty)
+            .toList()
+        else emptyList()
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
@@ -52,8 +56,15 @@ object WslClientConfigurator {
                 .redirectErrorStream(true)
                 .directory(File(System.getProperty("user.home")))
                 .start()
-            val output = process.inputStream.readBytes().toString(StandardCharsets.UTF_8).trim()
+            val output = decodeProcessOutput(process.inputStream.readBytes())
             CommandResult(process.waitFor(), output)
         }.getOrElse { error -> CommandResult(1, error.message ?: error.javaClass.simpleName) }
+    }
+
+    /** wsl.exe may write UTF-16LE when launched by a Windows GUI process. */
+    private fun decodeProcessOutput(bytes: ByteArray): String {
+        val oddNullBytes = bytes.indices.count { index -> index % 2 == 1 && bytes[index].toInt() == 0 }
+        val charset = if (bytes.size >= 2 && oddNullBytes * 2 >= bytes.size / 2) StandardCharsets.UTF_16LE else StandardCharsets.UTF_8
+        return String(bytes, charset).replace("\u0000", "").trim()
     }
 }
