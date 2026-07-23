@@ -46,8 +46,17 @@ object WslClientConfigurator {
 
     private fun runInWsl(distro: String, command: List<String>): CommandResult {
         require(distro.isNotBlank()) { "Choose a WSL distribution first." }
-        return execute(listOf("wsl.exe", "-d", distro, "--") + command)
+        val shell = loginShellFor(distro)
+        val shellCommand = command.joinToString(" ")(::shellQuote)
+        return execute(listOf("wsl.exe", "-d", distro, "--", shell, "-lic", shellCommand))
     }
+
+    private fun loginShellFor(distro: String): String {
+        val result = execute(listOf("wsl.exe", "-d", distro, "--", "sh", "-lc", "getent passwd \"$(id -u)\" | cut -d: -f7"))
+        return result.output.lineSequence().firstOrNull { it.startsWith('/') } ?: "/bin/sh"
+    }
+
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
 
     private fun execute(command: List<String>): CommandResult {
         if (!SystemInfo.isWindows) return CommandResult(1, "WSL auto-configuration is available only when IntelliJ runs on Windows.")
