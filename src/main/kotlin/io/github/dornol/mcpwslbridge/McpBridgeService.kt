@@ -217,7 +217,7 @@ class McpBridgeService : Disposable {
     companion object {
         private const val CONNECT_TIMEOUT_MS = 3_000
         private const val MAX_HTTP_HEADER_BYTES = 64 * 1024
-        private val HTTP_HEADER_TERMINATOR = byteArrayOf('\r'.code.toByte(), '\n'.code.toByte(), '\r'.code.toByte(), '\n'.code.toByte())
+        private val HTTP_HEADER_TERMINATOR = intArrayOf('\r'.code, '\n'.code, '\r'.code, '\n'.code)
         private val HTTP_HEADER_CHARSET = Charsets.ISO_8859_1
 
         fun getInstance(): McpBridgeService = ApplicationManager.getApplication().getService(McpBridgeService::class.java)
