@@ -140,9 +140,9 @@ class McpBridgeService : Disposable {
 
     /**
      * IntelliJ's MCP server accepts loopback hosts only. The TCP listener is intentionally exposed
-     * on a WSL adapter, so an HTTP client sends that adapter in its Host header. Replace that one
-     * header before relaying the stream; SSE and HTTP/1.1 WebSocket upgrades remain byte-for-byte
-     * after the initial request headers.
+     * on a WSL adapter, so an HTTP client sends that adapter in its Host and sometimes Origin
+     * headers. Replace both before relaying the stream; SSE and HTTP/1.1 WebSocket upgrades remain
+     * byte-for-byte after the initial request headers.
      */
     private fun forwardInitialRequest(input: InputStream, output: OutputStream, target: McpTarget): InputStream {
         val bufferedInput = BufferedInputStream(input)
@@ -168,9 +168,17 @@ class McpBridgeService : Disposable {
             val rewrittenHeaders = rawHeaders
                 .removeSuffix("\r\n\r\n")
                 .lineSequence()
-                .filterNot { it.startsWith("Host:", ignoreCase = true) }
+                .filterNot {
+                    it.startsWith("Host:", ignoreCase = true) ||
+                        it.startsWith("Origin:", ignoreCase = true)
+                }
                 .joinToString("\r\n")
-            output.write("$rewrittenHeaders\r\nHost: ${target.host}:${target.port}\r\n\r\n".toByteArray(HTTP_HEADER_CHARSET))
+            output.write(
+                (
+                    "$rewrittenHeaders\r\nHost: ${target.host}:${target.port}\r\n" +
+                        "Origin: http://${target.host}:${target.port}\r\n\r\n"
+                    ).toByteArray(HTTP_HEADER_CHARSET),
+            )
         }
         output.flush()
         return bufferedInput
