@@ -157,10 +157,10 @@ class BridgeConfigurable : Configurable {
             add(clientEndpoint)
         }
         val tabs = JTabbedPane()
-        tabs.addTab("Codex", clientActionPanel("Add or update '$SERVER_NAME' in ~/.codex/config.toml.") {
+        tabs.addTab("Codex", clientActionPanel("Add or update '${WslClientConfigurator.SERVER_NAME}' in ~/.codex/config.toml.") {
             applyWslConfiguration("Codex") { selectedDistro, endpoint -> WslClientConfigurator.configureCodex(selectedDistro, endpoint) }
         })
-        tabs.addTab("Claude Code", clientActionPanel("Add or update a user-scoped '$SERVER_NAME' MCP server.") {
+        tabs.addTab("Claude Code", clientActionPanel("Add or update a user-scoped '${WslClientConfigurator.SERVER_NAME}' MCP server.") {
             applyWslConfiguration("Claude Code") { selectedDistro, endpoint -> WslClientConfigurator.configureClaudeCode(selectedDistro, endpoint) }
         })
         tabs.addTab("Others", JPanel(BorderLayout(4, 4)).apply {
