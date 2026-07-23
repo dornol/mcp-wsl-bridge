@@ -40,6 +40,12 @@ intellijPlatform {
             <p>Choose one or more NIC addresses, then MCP WSL Bridge transparently relays each connection to the IDE's active MCP port.</p>
         """.trimIndent()
         changeNotes = """
+            <h2>0.1.1</h2>
+            <ul>
+              <li>Start a WSL loopback relay automatically when configuring Codex or Claude Code.</li>
+              <li>Fix Claude Code HTTP 403 errors caused by IntelliJ MCP loopback validation.</li>
+              <li>Run WSL client commands through the user's login shell.</li>
+            </ul>
             <h2>0.1.0</h2>
             <ul><li>Initial WSL network-interface proxy.</li></ul>
         """.trimIndent()
