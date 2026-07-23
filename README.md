@@ -6,6 +6,8 @@ An IntelliJ Platform plugin that exposes the IDE's loopback-only MCP server to W
 
 `MCP WSL Bridge` listens only on the IPv4 addresses selected in **Settings | Tools | MCP WSL Bridge** (normally the `vEthernet (WSL)` address). It transparently proxies every TCP connection to IntelliJ's active MCP server on `127.0.0.1`.
 
+For HTTP/1.1 clients, the bridge rewrites the initial `Host` header to the loopback MCP address. This is necessary because the built-in MCP server rejects requests whose Host header names the WSL-facing adapter.
+
 The plugin detects the port saved by the built-in IntelliJ MCP Server and falls back to checking ports beginning at `64342`. A manual target override is available for unusual configurations.
 
 ## Setup

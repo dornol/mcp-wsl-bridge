@@ -4,7 +4,11 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
+import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -123,8 +127,9 @@ class McpBridgeService : Disposable {
             client.use { incoming ->
                 Socket().use { outgoing ->
                     outgoing.connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS)
-                    val clientToServer = copyAsync(incoming, outgoing)
-                    val serverToClient = copyAsync(outgoing, incoming)
+                    val clientInput = forwardInitialRequest(incoming.getInputStream(), outgoing.getOutputStream(), target)
+                    val clientToServer = copyAsync(clientInput, outgoing.getOutputStream()) { outgoing.shutdownOutput() }
+                    val serverToClient = copyAsync(outgoing.getInputStream(), incoming.getOutputStream()) { incoming.shutdownOutput() }
                     waitForEither(incoming, outgoing, clientToServer, serverToClient)
                 }
             }
@@ -133,12 +138,50 @@ class McpBridgeService : Disposable {
         }
     }
 
-    private fun copyAsync(from: Socket, to: Socket): Future<*> = ioExecutor.submit {
+    /**
+     * IntelliJ's MCP server accepts loopback hosts only. The TCP listener is intentionally exposed
+     * on a WSL adapter, so an HTTP client sends that adapter in its Host header. Replace that one
+     * header before relaying the stream; SSE and HTTP/1.1 WebSocket upgrades remain byte-for-byte
+     * after the initial request headers.
+     */
+    private fun forwardInitialRequest(input: InputStream, output: OutputStream, target: McpTarget): InputStream {
+        val bufferedInput = BufferedInputStream(input)
+        val headerBytes = ByteArrayOutputStream()
+        var matchedTerminatorBytes = 0
+
+        while (headerBytes.size() < MAX_HTTP_HEADER_BYTES) {
+            val next = bufferedInput.read()
+            if (next == -1) break
+            headerBytes.write(next)
+            matchedTerminatorBytes = when {
+                next == HTTP_HEADER_TERMINATOR[matchedTerminatorBytes] -> matchedTerminatorBytes + 1
+                next == HTTP_HEADER_TERMINATOR[0] -> 1
+                else -> 0
+            }
+            if (matchedTerminatorBytes == HTTP_HEADER_TERMINATOR.size) break
+        }
+
+        val rawHeaders = headerBytes.toString(HTTP_HEADER_CHARSET)
+        if (matchedTerminatorBytes != HTTP_HEADER_TERMINATOR.size || !rawHeaders.startsWith("GET ") && !rawHeaders.startsWith("POST ")) {
+            output.write(headerBytes.toByteArray())
+        } else {
+            val rewrittenHeaders = rawHeaders
+                .removeSuffix("\r\n\r\n")
+                .lineSequence()
+                .filterNot { it.startsWith("Host:", ignoreCase = true) }
+                .joinToString("\r\n")
+            output.write("$rewrittenHeaders\r\nHost: ${target.host}:${target.port}\r\n\r\n".toByteArray(HTTP_HEADER_CHARSET))
+        }
+        output.flush()
+        return bufferedInput
+    }
+
+    private fun copyAsync(from: InputStream, to: OutputStream, onComplete: () -> Unit): Future<*> = ioExecutor.submit {
         try {
-            from.getInputStream().copyTo(to.getOutputStream())
-            to.getOutputStream().flush()
+            from.copyTo(to)
+            to.flush()
         } finally {
-            runCatching { to.shutdownOutput() }
+            runCatching(onComplete)
         }
     }
 
@@ -173,6 +216,9 @@ class McpBridgeService : Disposable {
 
     companion object {
         private const val CONNECT_TIMEOUT_MS = 3_000
+        private const val MAX_HTTP_HEADER_BYTES = 64 * 1024
+        private val HTTP_HEADER_TERMINATOR = byteArrayOf('\r'.code.toByte(), '\n'.code.toByte(), '\r'.code.toByte(), '\n'.code.toByte())
+        private val HTTP_HEADER_CHARSET = Charsets.ISO_8859_1
 
         fun getInstance(): McpBridgeService = ApplicationManager.getApplication().getService(McpBridgeService::class.java)
     }
