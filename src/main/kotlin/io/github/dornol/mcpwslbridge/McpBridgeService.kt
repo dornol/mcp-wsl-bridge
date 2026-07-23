@@ -80,7 +80,7 @@ class McpBridgeService : Disposable {
             listeners.remove(address, socket)
             runCatching { socket.close() }
         }
-        requestedAddresses.filter { it !in listeners }.forEach { bind(it, snapshot.listenerPort) }
+        requestedAddresses.filter { !listeners.containsKey(it) }.forEach { bind(it, snapshot.listenerPort) }
         if (listeners.isNotEmpty()) lastError = null
     }
 

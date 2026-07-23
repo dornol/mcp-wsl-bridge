@@ -36,16 +36,12 @@ intellijPlatform {
             url = "https://github.com/dornol"
         }
         description = """
-            <![CDATA[
             <p>Exposes IntelliJ's loopback-only MCP server to WSL through selected Windows network interfaces.</p>
             <p>Choose one or more NIC addresses, then MCP WSL Bridge transparently relays each connection to the IDE's active MCP port.</p>
-            ]]>
         """.trimIndent()
         changeNotes = """
-            <![CDATA[
             <h2>0.1.0</h2>
             <ul><li>Initial WSL network-interface proxy.</li></ul>
-            ]]>
         """.trimIndent()
     }
 }
@@ -66,4 +62,3 @@ tasks {
         distributionType = Wrapper.DistributionType.BIN
     }
 }
-

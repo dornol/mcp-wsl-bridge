@@ -47,7 +47,7 @@ class BridgeConfigurable : Configurable {
         c.gridy++
         panel.add(JScrollPane(interfacePanel).apply { preferredSize = java.awt.Dimension(560, 140) }, c)
         c.gridy++
-        panel.add(JButton("Refresh interfaces").apply { addActionListener { populateInterfaces(selectedAddresses()) } }, c)
+        panel.add(JButton("Refresh interfaces").apply { addActionListener { populateInterfaces(selectedAddresses().toSet()) } }, c)
         c.gridy++
         panel.add(autoTarget, c)
         c.gridy++
@@ -140,4 +140,3 @@ class BridgeConfigurable : Configurable {
         }
     }
 }
-
