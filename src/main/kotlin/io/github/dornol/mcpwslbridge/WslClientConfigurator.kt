@@ -3,6 +3,7 @@ package io.github.dornol.mcpwslbridge
 import com.intellij.openapi.util.SystemInfo
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.util.Base64
 
 object WslClientConfigurator {
     const val SERVER_NAME = "intellij-wsl-bridge"
@@ -22,15 +23,17 @@ object WslClientConfigurator {
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
+        val localEndpoint = startLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
         runInWsl(distro, listOf("codex", "mcp", "remove", SERVER_NAME))
-        return runInWsl(distro, listOf("codex", "mcp", "add", SERVER_NAME, "--url", endpoint))
+        return runInWsl(distro, listOf("codex", "mcp", "add", SERVER_NAME, "--url", localEndpoint))
     }
 
     fun configureClaudeCode(distro: String, endpoint: String): CommandResult {
+        val localEndpoint = startLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
         runInWsl(distro, listOf("claude", "mcp", "remove", "--scope", "user", SERVER_NAME))
         return runInWsl(
             distro,
-            listOf("claude", "mcp", "add", "--scope", "user", "--transport", "http", SERVER_NAME, endpoint),
+            listOf("claude", "mcp", "add", "--scope", "user", "--transport", "http", SERVER_NAME, localEndpoint),
         )
     }
 
@@ -56,6 +59,33 @@ object WslClientConfigurator {
         return result.output.lineSequence().firstOrNull { it.startsWith('/') } ?: "/bin/sh"
     }
 
+    /**
+     * IntelliJ's local MCP server has additional loopback protections beyond the HTTP Host header.
+     * Claude Code reaches the Windows host through the WSL gateway, so give it a WSL-loopback
+     * endpoint and relay that one connection to the Windows bridge. This also survives Claude's
+     * strict HTTP transport checks.
+     */
+    private fun startLoopbackProxy(distro: String, endpoint: String): String? {
+        val encodedScript = Base64.getEncoder().encodeToString(LOOPBACK_PROXY_SCRIPT.toByteArray(StandardCharsets.UTF_8))
+        val install = runInWsl(
+            distro,
+            listOf(
+                "sh", "-lc",
+                "mkdir -p \"$PROXY_DIRECTORY\" && printf %s '$encodedScript' | base64 -d > \"$PROXY_SCRIPT\" && chmod 700 \"$PROXY_SCRIPT\"",
+            ),
+        )
+        if (!install.succeeded) return null
+
+        val start = runInWsl(
+            distro,
+            listOf(
+                "sh", "-lc",
+                "nohup node \"$PROXY_SCRIPT\" '$endpoint' $LOOPBACK_PROXY_PORT > \"$PROXY_LOG\" 2>&1 &",
+            ),
+        )
+        return if (start.succeeded) "http://127.0.0.1:$LOOPBACK_PROXY_PORT/stream" else null
+    }
+
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
 
     private fun execute(command: List<String>): CommandResult {
@@ -76,4 +106,41 @@ object WslClientConfigurator {
         val charset = if (bytes.size >= 2 && oddNullBytes * 2 >= bytes.size / 2) StandardCharsets.UTF_16LE else StandardCharsets.UTF_8
         return String(bytes, charset).replace("\u0000", "").trim()
     }
+
+    private const val LOOPBACK_PROXY_PORT = 64344
+    private const val PROXY_DIRECTORY = "\$HOME/.local/share/mcp-wsl-bridge"
+    private const val PROXY_SCRIPT = "\$HOME/.local/share/mcp-wsl-bridge/loopback-proxy.js"
+    private const val PROXY_LOG = "\$HOME/.local/share/mcp-wsl-bridge/loopback-proxy.log"
+
+    private val LOOPBACK_PROXY_SCRIPT = """
+        const http = require('http');
+        const { URL } = require('url');
+
+        const target = new URL(process.argv[2]);
+        const port = Number(process.argv[3]);
+        const targetPort = target.port || (target.protocol === 'https:' ? 443 : 80);
+
+        const server = http.createServer((request, response) => {
+          const headers = { ...request.headers, host: `127.0.0.1:${'$'}{targetPort}` };
+          delete headers.origin;
+          const upstream = http.request({
+            hostname: target.hostname,
+            port: targetPort,
+            path: request.url,
+            method: request.method,
+            headers,
+          }, (upstreamResponse) => {
+            response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
+            upstreamResponse.pipe(response);
+          });
+          upstream.on('error', (error) => {
+            console.error(error.message);
+            response.writeHead(502);
+            response.end();
+          });
+          request.pipe(upstream);
+        });
+
+        server.listen(port, '127.0.0.1');
+    """.trimIndent()
 }
