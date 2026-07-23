@@ -44,6 +44,9 @@ intellijPlatform {
             <ul><li>Initial WSL network-interface proxy.</li></ul>
         """.trimIndent()
     }
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+    }
 }
 
 kotlin {

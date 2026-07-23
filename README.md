@@ -29,6 +29,8 @@ The plugin detects the port saved by the built-in IntelliJ MCP Server and falls 
 
 Do not select a Wi-Fi, Ethernet, or VPN address unless you intend to expose the MCP server on that network. This first release has no authentication; optional token authentication is planned for a later release.
 
+See [Privacy](PRIVACY.md) for local-data handling and [Publishing](PUBLISHING.md) for Marketplace release preparation.
+
 ## Development
 
 Requires JDK 21 or newer. Run `./gradlew build` to build and `./gradlew runIde` to launch a sandbox IDE.
