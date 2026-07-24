@@ -34,6 +34,7 @@ class BridgeConfigurable : Configurable {
     private val targetPort = JBTextField()
     private val interfacePanel = JPanel().apply { layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS) }
     private val interfaceChecks = linkedMapOf<String, JBCheckBox>()
+    private val interfaceNamesByAddress = linkedMapOf<String, String>()
     private val distro = JComboBox<String>()
     private val clientEndpoint = JBLabel()
     private val genericConfig = JTextArea(8, 52).apply { isEditable = false; lineWrap = false }
@@ -88,7 +89,7 @@ class BridgeConfigurable : Configurable {
         val state = BridgeSettings.getInstance().snapshot()
         return enabled.isSelected != state.enabled ||
             listenerPort.text.toIntOrNull() != state.listenerPort ||
-            selectedAddresses().toSet() != state.selectedAddresses.toSet() ||
+            selectedInterfaceNames().toSet() != storedInterfaceNames(state) ||
             (if (autoTarget.isSelected) BridgeSettings.TargetMode.AUTO else BridgeSettings.TargetMode.MANUAL) != state.targetMode ||
             targetHost.text != state.targetHost || targetPort.text.toIntOrNull() != state.targetPort ||
             (distro.selectedItem as? String ?: "") != state.wslDistro
@@ -104,6 +105,7 @@ class BridgeConfigurable : Configurable {
                 enabled = enabled.isSelected,
                 listenerPort = port,
                 selectedAddresses = selectedAddresses().toMutableList(),
+                selectedInterfaceNames = selectedInterfaceNames().toMutableList(),
                 targetMode = if (autoTarget.isSelected) BridgeSettings.TargetMode.AUTO else BridgeSettings.TargetMode.MANUAL,
                 targetHost = targetHost.text.trim(),
                 targetPort = manualPort,
@@ -122,7 +124,7 @@ class BridgeConfigurable : Configurable {
         manualTarget.isSelected = !autoTarget.isSelected
         targetHost.text = state.targetHost
         targetPort.text = state.targetPort.toString()
-        populateInterfaces(state.selectedAddresses.toSet())
+        populateInterfaces(state.selectedAddresses.toSet(), state.selectedInterfaceNames.toSet())
         populateDistributions(state.wslDistro)
         updateStatus()
     }
@@ -132,12 +134,19 @@ class BridgeConfigurable : Configurable {
         interfaceChecks.clear()
     }
 
-    private fun populateInterfaces(selected: Set<String>) {
+    private fun populateInterfaces(selectedAddresses: Set<String>, selectedInterfaceNames: Set<String> = emptySet()) {
         interfacePanel.removeAll()
         interfaceChecks.clear()
+        interfaceNamesByAddress.clear()
         NetworkInterfaces.availableIpv4Addresses().forEach { item ->
-            JBCheckBox(item.label, item.address in selected || (selected.isEmpty() && item.suggestedForWsl)).also { check ->
+            JBCheckBox(
+                item.label,
+                item.interfaceName in selectedInterfaceNames ||
+                    item.address in selectedAddresses ||
+                    (selectedAddresses.isEmpty() && selectedInterfaceNames.isEmpty() && item.suggestedForWsl),
+            ).also { check ->
                 interfaceChecks[item.address] = check
+                interfaceNamesByAddress[item.address] = item.interfaceName
                 interfacePanel.add(check)
             }
         }
@@ -146,6 +155,20 @@ class BridgeConfigurable : Configurable {
     }
 
     private fun selectedAddresses(): List<String> = interfaceChecks.filterValues { it.isSelected }.keys.toList()
+
+    private fun selectedInterfaceNames(): List<String> = interfaceChecks
+        .filterValues { it.isSelected }
+        .keys
+        .mapNotNull(interfaceNamesByAddress::get)
+        .distinct()
+
+    private fun storedInterfaceNames(state: BridgeSettings.State): Set<String> =
+        state.selectedInterfaceNames.toSet().ifEmpty {
+            NetworkInterfaces.availableIpv4Addresses()
+                .filter { it.address in state.selectedAddresses }
+                .map { it.interfaceName }
+                .toSet()
+        }
 
     private fun clientConfigurationPanel(): JComponent {
         val panel = JPanel(BorderLayout(6, 6)).apply {
@@ -203,6 +226,10 @@ class BridgeConfigurable : Configurable {
         if (selectedDistro.isNullOrBlank()) {
             Messages.showErrorDialog("Choose a WSL distribution first.", "MCP WSL Bridge")
             return
+        }
+        BridgeSettings.getInstance().snapshot().also { current ->
+            current.wslDistro = selectedDistro
+            BridgeSettings.getInstance().update(current)
         }
         ApplicationManager.getApplication().executeOnPooledThread {
             val result = action(selectedDistro, bridgeEndpoint)

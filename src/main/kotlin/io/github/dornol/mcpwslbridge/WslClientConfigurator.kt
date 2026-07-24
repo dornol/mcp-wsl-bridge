@@ -23,13 +23,13 @@ object WslClientConfigurator {
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
-        val localEndpoint = startLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
+        val localEndpoint = ensureLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
         runInWsl(distro, listOf("codex", "mcp", "remove", SERVER_NAME))
         return runInWsl(distro, listOf("codex", "mcp", "add", SERVER_NAME, "--url", localEndpoint))
     }
 
     fun configureClaudeCode(distro: String, endpoint: String): CommandResult {
-        val localEndpoint = startLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
+        val localEndpoint = ensureLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
         runInWsl(distro, listOf("claude", "mcp", "remove", "--scope", "user", SERVER_NAME))
         return runInWsl(
             distro,
@@ -65,7 +65,7 @@ object WslClientConfigurator {
      * endpoint and relay that one connection to the Windows bridge. This also survives Claude's
      * strict HTTP transport checks.
      */
-    private fun startLoopbackProxy(distro: String, endpoint: String): String? {
+    fun ensureLoopbackProxy(distro: String, endpoint: String): String? {
         val encodedScript = Base64.getEncoder().encodeToString(LOOPBACK_PROXY_SCRIPT.toByteArray(StandardCharsets.UTF_8))
         val install = runInWsl(
             distro,
@@ -119,12 +119,29 @@ object WslClientConfigurator {
         const target = new URL(process.argv[2]);
         const port = Number(process.argv[3]);
         const targetPort = target.port || (target.protocol === 'https:' ? 443 : 80);
+        const gateway = () => require('child_process')
+          .execFileSync('sh', ['-lc', "ip route show default | awk '{print $3; exit}'"], { encoding: 'utf8' })
+          .trim();
 
         const server = http.createServer((request, response) => {
+          let hostname;
+          try {
+            hostname = gateway();
+          } catch (error) {
+            console.error('Unable to resolve the Windows gateway: ' + error.message);
+            response.writeHead(502);
+            response.end();
+            return;
+          }
+          if (!hostname) {
+            response.writeHead(502);
+            response.end();
+            return;
+          }
           const headers = { ...request.headers, host: `127.0.0.1:${'$'}{targetPort}` };
           delete headers.origin;
           const upstream = http.request({
-            hostname: target.hostname,
+            hostname,
             port: targetPort,
             path: request.url,
             method: request.method,

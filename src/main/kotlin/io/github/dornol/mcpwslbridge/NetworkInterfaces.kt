@@ -36,4 +36,9 @@ object NetworkInterfaces {
     fun suggestedWslAddresses(): List<String> = availableIpv4Addresses()
         .filter { it.suggestedForWsl }
         .map { it.address }
+
+    fun addressesForInterfaces(interfaceNames: Collection<String>): List<String> =
+        availableIpv4Addresses()
+            .filter { it.interfaceName in interfaceNames }
+            .map { it.address }
 }

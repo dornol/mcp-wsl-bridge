@@ -36,6 +36,7 @@ class McpBridgeService : Disposable {
     @Volatile private var activeTarget: McpTarget? = null
     @Volatile private var lastError: String? = null
     @Volatile private var boundPort: Int? = null
+    @Volatile private var ensuredWslProxy: String? = null
 
     init {
         refreshExecutor.scheduleWithFixedDelay(::refresh, 0, 3, TimeUnit.SECONDS)
@@ -69,7 +70,9 @@ class McpBridgeService : Disposable {
         }
 
         activeTarget = target
-        val requestedAddresses = snapshot.selectedAddresses.ifEmpty { NetworkInterfaces.suggestedWslAddresses() }.toSet()
+        val requestedAddresses = NetworkInterfaces.addressesForInterfaces(snapshot.selectedInterfaceNames)
+            .ifEmpty { snapshot.selectedAddresses.ifEmpty { NetworkInterfaces.suggestedWslAddresses() } }
+            .toSet()
         if (requestedAddresses.isEmpty()) {
             stopListeners()
             lastError = "No network interface is selected. Select a WSL NIC address in MCP WSL Bridge settings."
@@ -85,7 +88,10 @@ class McpBridgeService : Disposable {
             runCatching { socket.close() }
         }
         requestedAddresses.filter { !listeners.containsKey(it) }.forEach { bind(it, snapshot.listenerPort) }
-        if (listeners.isNotEmpty()) lastError = null
+        if (listeners.isNotEmpty()) {
+            lastError = null
+            ensureWslLoopbackProxy(snapshot)
+        }
     }
 
     private fun bind(address: String, port: Int) {
@@ -214,6 +220,23 @@ class McpBridgeService : Disposable {
             runCatching { socket.close() }
         }
         boundPort = null
+        ensuredWslProxy = null
+    }
+
+    private fun ensureWslLoopbackProxy(snapshot: BridgeSettings.State) {
+        val distro = snapshot.wslDistro
+        val address = listeners.keys.firstOrNull() ?: return
+        val endpoint = "http://$address:${snapshot.listenerPort}/stream"
+        val identity = "$distro|$endpoint"
+        if (distro.isBlank() || ensuredWslProxy == identity) return
+        ensuredWslProxy = identity
+        ioExecutor.submit {
+            val configured = WslClientConfigurator.ensureLoopbackProxy(distro, endpoint)
+            if (configured == null) {
+                ensuredWslProxy = null
+                log.info("WSL loopback proxy could not be started for '$distro'.")
+            }
+        }
     }
 
     override fun dispose() {

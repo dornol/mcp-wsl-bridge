@@ -11,6 +11,7 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
         var enabled: Boolean = false,
         var listenerPort: Int = BridgeSettings.DEFAULT_LISTENER_PORT,
         var selectedAddresses: MutableList<String> = mutableListOf(),
+        var selectedInterfaceNames: MutableList<String> = mutableListOf(),
         var targetMode: TargetMode = TargetMode.AUTO,
         var targetHost: String = "127.0.0.1",
         var targetPort: Int = BridgeSettings.DEFAULT_MCP_PORT,
@@ -27,10 +28,16 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
         this.state = state
     }
 
-    fun snapshot(): State = state.copy(selectedAddresses = state.selectedAddresses.toMutableList())
+    fun snapshot(): State = state.copy(
+        selectedAddresses = state.selectedAddresses.toMutableList(),
+        selectedInterfaceNames = state.selectedInterfaceNames.toMutableList(),
+    )
 
     fun update(newState: State) {
-        state = newState.copy(selectedAddresses = newState.selectedAddresses.distinct().toMutableList())
+        state = newState.copy(
+            selectedAddresses = newState.selectedAddresses.distinct().toMutableList(),
+            selectedInterfaceNames = newState.selectedInterfaceNames.distinct().toMutableList(),
+        )
     }
 
     companion object {
