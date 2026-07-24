@@ -29,6 +29,7 @@ class McpBridgeService : Disposable {
     private val ioExecutor: ExecutorService = Executors.newCachedThreadPool { runnable ->
         Thread(runnable, "MCP WSL Bridge I/O").apply { isDaemon = true }
     }
+    private val experimentalHttpProxy = ExperimentalHttpReverseProxy(ioExecutor)
     private val refreshExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "MCP WSL Bridge refresh").apply { isDaemon = true }
     }
@@ -37,6 +38,7 @@ class McpBridgeService : Disposable {
     @Volatile private var lastError: String? = null
     @Volatile private var boundPort: Int? = null
     @Volatile private var ensuredWslProxy: String? = null
+    @Volatile private var experimentalProxyIdentity: String? = null
 
     init {
         refreshExecutor.scheduleWithFixedDelay(::refresh, 0, 3, TimeUnit.SECONDS)
@@ -88,9 +90,17 @@ class McpBridgeService : Disposable {
             runCatching { socket.close() }
         }
         requestedAddresses.filter { !listeners.containsKey(it) }.forEach { bind(it, snapshot.listenerPort) }
+        val proxyIdentity = requestedAddresses.sorted().joinToString() + "|" + snapshot.listenerPort + "|" + target.host + "|" + target.port
+        if (listeners.isNotEmpty() && experimentalProxyIdentity != proxyIdentity) {
+            experimentalHttpProxy.stop()
+            requestedAddresses.forEach { address ->
+                runCatching { experimentalHttpProxy.start(address, snapshot.listenerPort + 1, target) }
+                    .onFailure { log.info("Experimental HTTP reverse proxy is unavailable: ${it.message}") }
+            }
+            experimentalProxyIdentity = proxyIdentity
+        }
         if (listeners.isNotEmpty()) {
             lastError = null
-            ensureWslLoopbackProxy(snapshot)
         }
     }
 
@@ -221,6 +231,8 @@ class McpBridgeService : Disposable {
         }
         boundPort = null
         ensuredWslProxy = null
+        experimentalProxyIdentity = null
+        experimentalHttpProxy.stop()
     }
 
     private fun ensureWslLoopbackProxy(snapshot: BridgeSettings.State) {

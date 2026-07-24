@@ -219,7 +219,7 @@ class BridgeConfigurable : Configurable {
 
     private fun applyWslConfiguration(clientName: String, action: (String, String) -> WslClientConfigurator.CommandResult) {
         val selectedDistro = distro.selectedItem as? String
-        val bridgeEndpoint = runCatching { endpoint() }.getOrElse { error ->
+        val bridgeEndpoint = runCatching { httpEndpoint() }.getOrElse { error ->
             Messages.showErrorDialog(error.message ?: "Bridge is not listening.", "MCP WSL Bridge")
             return
         }
@@ -250,10 +250,17 @@ class BridgeConfigurable : Configurable {
         return "http://$address:${BridgeSettings.getInstance().snapshot().listenerPort}/stream"
     }
 
+    private fun httpEndpoint(): String {
+        val bridge = McpBridgeService.getInstance().status()
+        val address = bridge.runningAddresses.firstOrNull()
+            ?: throw IllegalStateException(bridge.error ?: "Enable the bridge and select a network interface first.")
+        return "http://$address:${BridgeSettings.getInstance().snapshot().listenerPort + 1}/stream"
+    }
+
     private fun updateStatus() {
         val current = McpBridgeService.getInstance().status()
-        clientEndpoint.text = runCatching { "WSL endpoint: ${endpoint()}" }.getOrElse { "WSL endpoint: start the bridge first" }
-        genericConfig.text = runCatching { WslClientConfigurator.genericJson(endpoint()) }.getOrDefault("Start the bridge to generate a configuration.")
+        clientEndpoint.text = runCatching { "WSL HTTP endpoint: ${httpEndpoint()}" }.getOrElse { "WSL endpoint: start the bridge first" }
+        genericConfig.text = runCatching { WslClientConfigurator.genericJson(httpEndpoint()) }.getOrDefault("Start the bridge to generate a configuration.")
         status.text = when {
             current.error != null -> "Status: ${current.error}"
             current.runningAddresses.isNotEmpty() -> "Status: listening on ${current.runningAddresses.joinToString()} → ${current.target?.host}:${current.target?.port}"

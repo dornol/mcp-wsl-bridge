@@ -23,17 +23,15 @@ object WslClientConfigurator {
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
-        val localEndpoint = ensureLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
         runInWsl(distro, listOf("codex", "mcp", "remove", SERVER_NAME))
-        return runInWsl(distro, listOf("codex", "mcp", "add", SERVER_NAME, "--url", localEndpoint))
+        return runInWsl(distro, listOf("codex", "mcp", "add", SERVER_NAME, "--url", endpoint))
     }
 
     fun configureClaudeCode(distro: String, endpoint: String): CommandResult {
-        val localEndpoint = ensureLoopbackProxy(distro, endpoint) ?: return CommandResult(1, "Could not start the WSL loopback proxy.")
         runInWsl(distro, listOf("claude", "mcp", "remove", "--scope", "user", SERVER_NAME))
         return runInWsl(
             distro,
-            listOf("claude", "mcp", "add", "--scope", "user", "--transport", "http", SERVER_NAME, localEndpoint),
+            listOf("claude", "mcp", "add", "--scope", "user", "--transport", "http", SERVER_NAME, endpoint),
         )
     }
 
