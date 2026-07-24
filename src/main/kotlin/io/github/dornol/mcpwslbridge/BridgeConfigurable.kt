@@ -254,7 +254,7 @@ class BridgeConfigurable : Configurable {
         val bridge = McpBridgeService.getInstance().status()
         val address = bridge.runningAddresses.firstOrNull()
             ?: throw IllegalStateException(bridge.error ?: "Enable the bridge and select a network interface first.")
-        return "http://$address:${BridgeSettings.getInstance().snapshot().listenerPort + 1}/stream"
+        return "http://$address:${BridgeSettings.getInstance().snapshot().listenerPort}/stream"
     }
 
     private fun updateStatus() {

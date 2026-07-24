@@ -81,7 +81,7 @@ class McpBridgeService : Disposable {
             return
         }
 
-        if (boundPort != null && boundPort != snapshot.listenerPort) {
+        if (boundPort != null && boundPort != snapshot.listenerPort + 1) {
             stopListeners()
         }
 
@@ -89,12 +89,12 @@ class McpBridgeService : Disposable {
             listeners.remove(address, socket)
             runCatching { socket.close() }
         }
-        requestedAddresses.filter { !listeners.containsKey(it) }.forEach { bind(it, snapshot.listenerPort) }
+        requestedAddresses.filter { !listeners.containsKey(it) }.forEach { bind(it, snapshot.listenerPort + 1) }
         val proxyIdentity = requestedAddresses.sorted().joinToString() + "|" + snapshot.listenerPort + "|" + target.host + "|" + target.port
         if (listeners.isNotEmpty() && experimentalProxyIdentity != proxyIdentity) {
             experimentalHttpProxy.stop()
             requestedAddresses.forEach { address ->
-                runCatching { experimentalHttpProxy.start(address, snapshot.listenerPort + 1, target) }
+                runCatching { experimentalHttpProxy.start(address, snapshot.listenerPort, target) }
                     .onFailure { log.info("Experimental HTTP reverse proxy is unavailable: ${it.message}") }
             }
             experimentalProxyIdentity = proxyIdentity
