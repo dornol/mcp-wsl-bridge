@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-07-24
+
+- Use a Windows HTTP reverse proxy as the primary WSL client endpoint.
+- Configure Claude Code and Codex to connect directly to the selected Windows NIC address.
+- Remove the WSL-local Node proxy requirement.
+- Rebind selected network interfaces after their IP addresses change.
+
 ## 0.1.1 - 2026-07-24
 
 - Start a WSL loopback relay automatically when configuring Codex or Claude Code.

@@ -40,6 +40,12 @@ intellijPlatform {
             <p>Choose one or more NIC addresses, then MCP WSL Bridge transparently relays each connection to the IDE's active MCP port.</p>
         """.trimIndent()
         changeNotes = """
+            <h2>0.1.2</h2>
+            <ul>
+              <li>Use a Windows HTTP reverse proxy as the primary WSL client endpoint.</li>
+              <li>Remove the WSL-local Node proxy requirement for Claude Code and Codex.</li>
+              <li>Recover selected WSL NIC addresses after network changes.</li>
+            </ul>
             <h2>0.1.1</h2>
             <ul>
               <li>Start a WSL loopback relay automatically when configuring Codex or Claude Code.</li>
