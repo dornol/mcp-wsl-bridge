@@ -40,6 +40,12 @@ intellijPlatform {
             <p>Choose one or more NIC addresses, then MCP WSL Bridge transparently relays each connection to the IDE's active MCP port.</p>
         """.trimIndent()
         changeNotes = """
+            <h2>0.1.3</h2>
+            <ul>
+              <li>Prevent interactive shell startup scripts from blocking WSL client configuration.</li>
+              <li>Show progress and explicit failure or timeout feedback when applying client settings.</li>
+              <li>Move WSL discovery and bridge restart work off IntelliJ's UI thread.</li>
+            </ul>
             <h2>0.1.2</h2>
             <ul>
               <li>Use a Windows HTTP reverse proxy as the primary WSL client endpoint.</li>

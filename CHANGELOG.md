@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 - 2026-07-25
+
+- Prevent shell startup scripts from blocking WSL client configuration by using a non-interactive login shell.
+- Show immediate progress and explicit success, failure, and timeout feedback for **Apply to WSL**.
+- Load WSL distributions and restart the bridge outside IntelliJ's UI thread.
+
 ## 0.1.2 - 2026-07-24
 
 - Use a Windows HTTP reverse proxy as the primary WSL client endpoint.

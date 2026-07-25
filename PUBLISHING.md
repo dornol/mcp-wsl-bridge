@@ -1,12 +1,21 @@
 # Publishing MCP WSL Bridge
 
-## Before the first Marketplace upload
+## Marketplace setup
 
 1. Confirm the MIT license in `LICENSE` is appropriate for the release.
 2. Create a JetBrains Marketplace Vendor profile for `dornol`, accept the Developer Agreement, and provide a public vendor contact email.
 3. Create a Marketplace upload token and save it in the GitHub repository as the `PUBLISH_TOKEN` Actions secret.
 4. Build and test the plugin on Windows with a real IntelliJ IDEA 2025.2+ installation and WSL.
 5. Update `pluginVersion`, `CHANGELOG.md`, and the release notes before publishing a later version.
+
+## Release checklist
+
+1. Update `pluginVersion`, `CHANGELOG.md`, and `changeNotes` in `build.gradle.kts`.
+2. Run `./gradlew clean build buildPlugin verifyPlugin`.
+3. Install the generated ZIP from `build/distributions/` in IntelliJ on Windows.
+4. Test bridge startup, WSL distribution refresh, Codex and Claude Code configuration, and an MCP tool call from WSL.
+5. Commit the release changes and wait for CI to pass.
+6. Create and publish a GitHub release whose tag exactly matches the plugin version, such as `v0.1.3`.
 
 ## Automated publishing
 

@@ -4,6 +4,8 @@ import com.intellij.openapi.util.SystemInfo
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 object WslClientConfigurator {
     const val SERVER_NAME = "intellij-wsl-bridge"
@@ -49,7 +51,10 @@ object WslClientConfigurator {
         require(distro.isNotBlank()) { "Choose a WSL distribution first." }
         val shell = loginShellFor(distro)
         val shellCommand = command.joinToString(" ") { shellQuote(it) }
-        return execute(listOf("wsl.exe", "-d", distro, "--", shell, "-lic", shellCommand))
+        // Do not start an interactive shell here. Interactive zsh/bash startup files can launch
+        // prompts, tmux, plugin updaters, or other terminal-only commands and never return when
+        // invoked by an IDE process. A login shell is sufficient for the user's configured PATH.
+        return execute(listOf("wsl.exe", "-d", distro, "--", shell, "-lc", shellCommand))
     }
 
     private fun loginShellFor(distro: String): String {
@@ -93,8 +98,17 @@ object WslClientConfigurator {
                 .redirectErrorStream(true)
                 .directory(File(System.getProperty("user.home")))
                 .start()
-            val output = decodeProcessOutput(process.inputStream.readBytes())
-            CommandResult(process.waitFor(), output)
+            val output = CompletableFuture.supplyAsync { process.inputStream.readBytes() }
+            if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                process.waitFor()
+                CommandResult(
+                    TIMEOUT_EXIT_CODE,
+                    "WSL configuration command timed out after $COMMAND_TIMEOUT_SECONDS seconds.",
+                )
+            } else {
+                CommandResult(process.exitValue(), decodeProcessOutput(output.get()))
+            }
         }.getOrElse { error -> CommandResult(1, error.message ?: error.javaClass.simpleName) }
     }
 
@@ -106,6 +120,8 @@ object WslClientConfigurator {
     }
 
     private const val LOOPBACK_PROXY_PORT = 64344
+    private const val COMMAND_TIMEOUT_SECONDS = 30L
+    private const val TIMEOUT_EXIT_CODE = 124
     private const val PROXY_DIRECTORY = "\$HOME/.local/share/mcp-wsl-bridge"
     private const val PROXY_SCRIPT = "\$HOME/.local/share/mcp-wsl-bridge/loopback-proxy.js"
     private const val PROXY_LOG = "\$HOME/.local/share/mcp-wsl-bridge/loopback-proxy.log"

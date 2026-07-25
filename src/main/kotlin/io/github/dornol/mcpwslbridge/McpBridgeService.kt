@@ -52,7 +52,15 @@ class McpBridgeService : Disposable {
 
     fun status(): Status = Status(listeners.keys.sorted(), activeTarget, lastError)
 
-    fun restart() = refresh()
+    fun restart(onComplete: (() -> Unit)? = null) {
+        refreshExecutor.execute {
+            try {
+                refresh()
+            } finally {
+                onComplete?.invoke()
+            }
+        }
+    }
 
     private fun refresh() {
         val snapshot = settings.snapshot()
