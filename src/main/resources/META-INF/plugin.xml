@@ -8,8 +8,9 @@
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.BridgeSettings"/>
         <applicationService
-                serviceImplementation="io.github.dornol.mcpwslbridge.McpBridgeService"
-                preload="true"/>
+                serviceImplementation="io.github.dornol.mcpwslbridge.McpBridgeService"/>
+        <applicationInitializedListener
+                implementation="io.github.dornol.mcpwslbridge.McpBridgeApplicationInitializedListener"/>
         <applicationConfigurable
                 id="io.github.dornol.mcpwslbridge.settings"
                 parentId="tools"

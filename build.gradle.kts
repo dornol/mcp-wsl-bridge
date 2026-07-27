@@ -52,6 +52,10 @@ intellijPlatform {
         <p><b>Security:</b> select only network interfaces you intend to expose. The bridge has no authentication and should not be bound to Wi-Fi, Ethernet, or VPN addresses unless required.</p>
         """.trimIndent()
         changeNotes = """
+            <h2>0.1.5</h2>
+            <ul>
+              <li>Start the bridge after IntelliJ initialization using the supported application listener.</li>
+            </ul>
             <h2>0.1.4</h2>
             <ul>
               <li>Start the bridge automatically when enabled in IntelliJ.</li>
