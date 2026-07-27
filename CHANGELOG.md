@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 - 2026-07-27
+
+- Start the bridge automatically when enabled in IntelliJ.
+- Rebind listeners automatically when selected WSL interface addresses change.
+- Refresh Codex, Claude Code, and GitHub Copilot CLI endpoints across configured WSL distributions.
+- Add unit and socket integration tests for bridge startup, relay, configuration, and failure paths.
+
 ## 0.1.3 - 2026-07-25
 
 - Prevent shell startup scripts from blocking WSL client configuration by using a non-interactive login shell.
