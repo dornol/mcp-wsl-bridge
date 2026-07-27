@@ -18,10 +18,11 @@ class PluginDescriptorTest {
         assertEquals("", bridgeService.getAttribute("preload"))
         assertTrue(services.any { it.getAttribute("serviceImplementation").contains("BridgeSettings") })
 
-        val initializedListeners = (0 until document.getElementsByTagName("applicationInitializedListener").length)
-            .map { document.getElementsByTagName("applicationInitializedListener").item(it) as Element }
-        assertTrue(initializedListeners.any {
-            it.getAttribute("implementation").contains("McpBridgeApplicationInitializedListener")
+        val lifecycleListeners = (0 until document.getElementsByTagName("appLifecycleListener").length)
+            .map { document.getElementsByTagName("appLifecycleListener").item(it) as Element }
+        assertEquals(0, document.getElementsByTagName("applicationInitializedListener").length)
+        assertTrue(lifecycleListeners.any {
+            it.getAttribute("implementation").contains("McpBridgeAppLifecycleListener")
         })
 
         val configurables = (0 until document.getElementsByTagName("applicationConfigurable").length)

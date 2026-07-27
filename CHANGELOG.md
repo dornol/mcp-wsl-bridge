@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 - 2026-07-27
+
+- Replace deprecated and internal IntelliJ startup, settings-path, and clipboard APIs.
+
 ## 0.1.5 - 2026-07-27
 
 - Start the bridge after IntelliJ initialization without using the deprecated service preload attribute.

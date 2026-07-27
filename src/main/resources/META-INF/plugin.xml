@@ -9,8 +9,8 @@
         <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.BridgeSettings"/>
         <applicationService
                 serviceImplementation="io.github.dornol.mcpwslbridge.McpBridgeService"/>
-        <applicationInitializedListener
-                implementation="io.github.dornol.mcpwslbridge.McpBridgeApplicationInitializedListener"/>
+        <appLifecycleListener
+                implementation="io.github.dornol.mcpwslbridge.McpBridgeAppLifecycleListener"/>
         <applicationConfigurable
                 id="io.github.dornol.mcpwslbridge.settings"
                 parentId="tools"

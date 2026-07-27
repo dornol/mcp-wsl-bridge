@@ -11,7 +11,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 data class McpTarget(val host: String, val port: Int, val source: String)
 
 class McpTargetResolver(
-    private val optionsPathProvider: () -> Path = { Path.of(PathManager.getOptionsPath()) },
+    private val optionsPathProvider: () -> Path = { PathManager.getConfigDir().resolve("options") },
     private val portProbe: (Int) -> Boolean = ::isListening,
 ) {
     fun resolve(settings: BridgeSettings.State): McpTarget? {

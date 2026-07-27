@@ -1,10 +1,10 @@
 package io.github.dornol.mcpwslbridge
 
-import com.intellij.ide.ApplicationInitializedListener
+import com.intellij.ide.AppLifecycleListener
 
-/** Instantiates the application service after IntelliJ has finished initializing. */
-class McpBridgeApplicationInitializedListener : ApplicationInitializedListener {
-    override suspend fun execute() {
+/** Instantiates the application service once IntelliJ has started. */
+class McpBridgeAppLifecycleListener : AppLifecycleListener {
+    override fun appStarted() {
         McpBridgeService.getInstance()
     }
 }

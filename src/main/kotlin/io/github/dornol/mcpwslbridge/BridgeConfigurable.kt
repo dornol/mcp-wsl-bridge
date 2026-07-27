@@ -3,7 +3,6 @@ package io.github.dornol.mcpwslbridge
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
@@ -13,6 +12,7 @@ import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.datatransfer.StringSelection
+import java.awt.Toolkit
 import javax.swing.BorderFactory
 import javax.swing.ButtonGroup
 import javax.swing.JButton
@@ -206,7 +206,7 @@ class BridgeConfigurable : Configurable {
             add(JButton("Copy generic JSON").apply {
                 addActionListener {
                     runCatching { endpoint() }
-                        .onSuccess { CopyPasteManager.getInstance().setContents(StringSelection(WslClientConfigurator.genericJson(it))) }
+                        .onSuccess { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(WslClientConfigurator.genericJson(it)), null) }
                         .onFailure { Messages.showErrorDialog(it.message ?: "Bridge is not listening.", "MCP WSL Bridge") }
                 }
             }, BorderLayout.SOUTH)
