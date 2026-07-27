@@ -52,6 +52,10 @@ intellijPlatform {
         <p><b>Security:</b> select only network interfaces you intend to expose. The bridge has no authentication and should not be bound to Wi-Fi, Ethernet, or VPN addresses unless required.</p>
         """.trimIndent()
         changeNotes = """
+            <h2>0.1.7</h2>
+            <ul>
+              <li>Use the public application-frame lifecycle callback for automatic startup.</li>
+            </ul>
             <h2>0.1.6</h2>
             <ul>
               <li>Replace deprecated and internal IntelliJ startup, settings-path, and clipboard APIs.</li>

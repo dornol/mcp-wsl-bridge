@@ -2,9 +2,9 @@ package io.github.dornol.mcpwslbridge
 
 import com.intellij.ide.AppLifecycleListener
 
-/** Instantiates the application service once IntelliJ has started. */
+/** Instantiates the application service when IntelliJ creates its application frame. */
 class McpBridgeAppLifecycleListener : AppLifecycleListener {
-    override fun appStarted() {
+    override fun appFrameCreated(commandLineArgs: List<String>) {
         McpBridgeService.getInstance()
     }
 }

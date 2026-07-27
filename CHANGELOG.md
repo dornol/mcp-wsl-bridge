@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 - 2026-07-27
+
+- Use the public application-frame lifecycle callback for automatic startup.
+
 ## 0.1.6 - 2026-07-27
 
 - Replace deprecated and internal IntelliJ startup, settings-path, and clipboard APIs.
