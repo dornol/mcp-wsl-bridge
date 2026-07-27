@@ -20,11 +20,10 @@ object NetworkInterfaces {
         .asSequence()
         .filter { it.isUp && !it.isLoopback }
         .flatMap { nic ->
-            val suggested = nic.name.contains("wsl", ignoreCase = true) ||
-                (nic.displayName ?: "").contains("wsl", ignoreCase = true)
+            val suggested = isSuggested(nic.name, nic.displayName)
             nic.inetAddresses.asSequence()
                 .filterIsInstance<Inet4Address>()
-                .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+                .filter(::isUsableIpv4)
                 .map { address ->
                     NetworkAddress(nic.name, nic.displayName ?: nic.name, address.hostAddress, suggested)
                 }
@@ -41,4 +40,10 @@ object NetworkInterfaces {
         availableIpv4Addresses()
             .filter { it.interfaceName in interfaceNames }
             .map { it.address }
+
+    internal fun isSuggested(interfaceName: String, displayName: String?): Boolean =
+        interfaceName.contains("wsl", ignoreCase = true) || displayName.orEmpty().contains("wsl", ignoreCase = true)
+
+    internal fun isUsableIpv4(address: Inet4Address): Boolean =
+        !address.isLoopbackAddress && !address.isLinkLocalAddress
 }

@@ -14,14 +14,12 @@ object WslClientConfigurator {
         val succeeded: Boolean get() = exitCode == 0
     }
 
+    internal var commandRunner: (List<String>) -> CommandResult = ::execute
+
     fun distributions(): List<String> {
         if (!SystemInfo.isWindows) return emptyList()
-        val result = execute(listOf("wsl.exe", "-l", "-q"))
-        return if (result.succeeded) result.output.lineSequence()
-            .map { it.replace("\u0000", "").trim() }
-            .filter(String::isNotEmpty)
-            .toList()
-        else emptyList()
+        val result = commandRunner(listOf("wsl.exe", "-l", "-q"))
+        return if (result.succeeded) parseDistributions(result.output) else emptyList()
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
@@ -34,6 +32,14 @@ object WslClientConfigurator {
         return runInWsl(
             distro,
             listOf("claude", "mcp", "add", "--scope", "user", "--transport", "http", SERVER_NAME, endpoint),
+        )
+    }
+
+    fun configureCopilotCli(distro: String, endpoint: String): CommandResult {
+        runInWsl(distro, listOf("copilot", "mcp", "remove", SERVER_NAME))
+        return runInWsl(
+            distro,
+            listOf("copilot", "mcp", "add", "--transport", "http", SERVER_NAME, endpoint),
         )
     }
 
@@ -54,11 +60,11 @@ object WslClientConfigurator {
         // Do not start an interactive shell here. Interactive zsh/bash startup files can launch
         // prompts, tmux, plugin updaters, or other terminal-only commands and never return when
         // invoked by an IDE process. A login shell is sufficient for the user's configured PATH.
-        return execute(listOf("wsl.exe", "-d", distro, "--", shell, "-lc", shellCommand))
+        return commandRunner(listOf("wsl.exe", "-d", distro, "--", shell, "-lc", shellCommand))
     }
 
     private fun loginShellFor(distro: String): String {
-        val result = execute(listOf("wsl.exe", "-d", distro, "--", "sh", "-lc", "getent passwd \"$(id -u)\" | cut -d: -f7"))
+        val result = commandRunner(listOf("wsl.exe", "-d", distro, "--", "sh", "-lc", "getent passwd \"$(id -u)\" | cut -d: -f7"))
         return result.output.lineSequence().firstOrNull { it.startsWith('/') } ?: "/bin/sh"
     }
 
@@ -89,7 +95,12 @@ object WslClientConfigurator {
         return if (start.succeeded) "http://127.0.0.1:$LOOPBACK_PROXY_PORT/stream" else null
     }
 
-    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
+    internal fun parseDistributions(output: String): List<String> = output.lineSequence()
+        .map { it.replace("\u0000", "").trim() }
+        .filter(String::isNotEmpty)
+        .toList()
+
+    internal fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
 
     private fun execute(command: List<String>): CommandResult {
         if (!SystemInfo.isWindows) return CommandResult(1, "WSL auto-configuration is available only when IntelliJ runs on Windows.")
@@ -113,7 +124,7 @@ object WslClientConfigurator {
     }
 
     /** wsl.exe may write UTF-16LE when launched by a Windows GUI process. */
-    private fun decodeProcessOutput(bytes: ByteArray): String {
+    internal fun decodeProcessOutput(bytes: ByteArray): String {
         val oddNullBytes = bytes.indices.count { index -> index % 2 == 1 && bytes[index].toInt() == 0 }
         val charset = if (bytes.size >= 2 && oddNullBytes * 2 >= bytes.size / 2) StandardCharsets.UTF_16LE else StandardCharsets.UTF_8
         return String(bytes, charset).replace("\u0000", "").trim()

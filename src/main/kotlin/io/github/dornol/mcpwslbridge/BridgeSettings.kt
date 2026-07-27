@@ -16,6 +16,11 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
         var targetHost: String = "127.0.0.1",
         var targetPort: Int = BridgeSettings.DEFAULT_MCP_PORT,
         var wslDistro: String = "",
+        var codexConfigured: Boolean = false,
+        var claudeConfigured: Boolean = false,
+        var configuredCodexDistros: MutableList<String> = mutableListOf(),
+        var configuredClaudeDistros: MutableList<String> = mutableListOf(),
+        var configuredCopilotDistros: MutableList<String> = mutableListOf(),
     )
 
     enum class TargetMode { AUTO, MANUAL }
@@ -31,12 +36,18 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
     fun snapshot(): State = state.copy(
         selectedAddresses = state.selectedAddresses.toMutableList(),
         selectedInterfaceNames = state.selectedInterfaceNames.toMutableList(),
+        configuredCodexDistros = state.configuredCodexDistros.toMutableList(),
+        configuredClaudeDistros = state.configuredClaudeDistros.toMutableList(),
+        configuredCopilotDistros = state.configuredCopilotDistros.toMutableList(),
     )
 
     fun update(newState: State) {
         state = newState.copy(
             selectedAddresses = newState.selectedAddresses.distinct().toMutableList(),
             selectedInterfaceNames = newState.selectedInterfaceNames.distinct().toMutableList(),
+            configuredCodexDistros = newState.configuredCodexDistros.distinct().toMutableList(),
+            configuredClaudeDistros = newState.configuredClaudeDistros.distinct().toMutableList(),
+            configuredCopilotDistros = newState.configuredCopilotDistros.distinct().toMutableList(),
         )
     }
 

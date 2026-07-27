@@ -10,7 +10,10 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 data class McpTarget(val host: String, val port: Int, val source: String)
 
-class McpTargetResolver {
+class McpTargetResolver(
+    private val optionsPathProvider: () -> Path = { Path.of(PathManager.getOptionsPath()) },
+    private val portProbe: (Int) -> Boolean = ::isListening,
+) {
     fun resolve(settings: BridgeSettings.State): McpTarget? {
         if (settings.targetMode == BridgeSettings.TargetMode.MANUAL) {
             return McpTarget(settings.targetHost, settings.targetPort, "Manual setting")
@@ -21,7 +24,7 @@ class McpTargetResolver {
     }
 
     private fun configuredPort(): Int? {
-        val configFile = Path.of(PathManager.getOptionsPath(), "mcpServer.xml")
+        val configFile = optionsPathProvider().resolve("mcpServer.xml")
         if (!Files.isRegularFile(configFile)) return null
 
         return runCatching {
@@ -44,13 +47,14 @@ class McpTargetResolver {
     }
 
     private fun findListeningPort(): Int? = (BridgeSettings.DEFAULT_MCP_PORT..BridgeSettings.DEFAULT_MCP_PORT + 20)
-        .firstOrNull { port ->
-            runCatching {
-                Socket().use { socket -> socket.connect(InetSocketAddress("127.0.0.1", port), 150) }
-                true
-            }.getOrDefault(false)
-        }
+        .firstOrNull(portProbe)
+
+    private companion object {
+        fun isListening(port: Int): Boolean = runCatching {
+            Socket().use { socket -> socket.connect(InetSocketAddress("127.0.0.1", port), 150) }
+            true
+        }.getOrDefault(false)
+    }
 
     private fun isValidPort(port: Int) = port in 1..65535
 }
-

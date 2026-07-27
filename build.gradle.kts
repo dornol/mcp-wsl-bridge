@@ -18,6 +18,9 @@ repositories {
 }
 
 dependencies {
+    testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation(kotlin("test"))
     intellijPlatform {
         intellijIdea(providers.gradleProperty("platformVersion").get())
         testFramework(TestFrameworkType.Platform)
@@ -74,6 +77,10 @@ kotlin {
 }
 
 tasks {
+    test {
+        useJUnitPlatform()
+    }
+
     withType<JavaCompile> {
         sourceCompatibility = "21"
         targetCompatibility = "21"

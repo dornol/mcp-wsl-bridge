@@ -26,7 +26,7 @@ import javax.swing.JTextArea
 
 class BridgeConfigurable : Configurable {
     private var root: JPanel? = null
-    private val enabled = JBCheckBox("Enable MCP WSL Bridge")
+    private val enabled = JBCheckBox("Enable MCP WSL Bridge and start it automatically with IntelliJ")
     private val listenerPort = JBTextField()
     private val autoTarget = JRadioButton("Automatically detect IntelliJ MCP port", true)
     private val manualTarget = JRadioButton("Use manual target")
@@ -104,7 +104,7 @@ class BridgeConfigurable : Configurable {
             ?: throw IllegalArgumentException("Target port must be between 1 and 65535.")
         val currentState = BridgeSettings.getInstance().snapshot()
         BridgeSettings.getInstance().update(
-            BridgeSettings.State(
+            currentState.copy(
                 enabled = enabled.isSelected,
                 listenerPort = port,
                 selectedAddresses = selectedAddresses().toMutableList(),
@@ -192,10 +192,13 @@ class BridgeConfigurable : Configurable {
         }
         val tabs = JTabbedPane()
         tabs.addTab("Codex", clientActionPanel("Add or update '${WslClientConfigurator.SERVER_NAME}' in ~/.codex/config.toml.") {
-            applyWslConfiguration("Codex") { selectedDistro, endpoint -> WslClientConfigurator.configureCodex(selectedDistro, endpoint) }
+            applyWslConfiguration("Codex", "codex") { selectedDistro, endpoint -> WslClientConfigurator.configureCodex(selectedDistro, endpoint) }
         })
         tabs.addTab("Claude Code", clientActionPanel("Add or update a user-scoped '${WslClientConfigurator.SERVER_NAME}' MCP server.") {
-            applyWslConfiguration("Claude Code") { selectedDistro, endpoint -> WslClientConfigurator.configureClaudeCode(selectedDistro, endpoint) }
+            applyWslConfiguration("Claude Code", "claude") { selectedDistro, endpoint -> WslClientConfigurator.configureClaudeCode(selectedDistro, endpoint) }
+        })
+        tabs.addTab("GitHub Copilot CLI", clientActionPanel("Add or update '${WslClientConfigurator.SERVER_NAME}' in GitHub Copilot CLI.") {
+            applyWslConfiguration("GitHub Copilot CLI", "copilot") { selectedDistro, endpoint -> WslClientConfigurator.configureCopilotCli(selectedDistro, endpoint) }
         })
         tabs.addTab("Others", JPanel(BorderLayout(4, 4)).apply {
             add(JBLabel("Generic streamable HTTP MCP JSON:"), BorderLayout.NORTH)
@@ -240,7 +243,7 @@ class BridgeConfigurable : Configurable {
         }
     }
 
-    private fun applyWslConfiguration(clientName: String, action: (String, String) -> WslClientConfigurator.CommandResult) {
+    private fun applyWslConfiguration(clientName: String, clientKey: String, action: (String, String) -> WslClientConfigurator.CommandResult) {
         val selectedDistro = distro.selectedItem as? String
         val bridgeEndpoint = runCatching { httpEndpoint() }.getOrElse { error ->
             Messages.showErrorDialog(error.message ?: "Bridge is not listening.", "MCP WSL Bridge")
@@ -265,6 +268,18 @@ class BridgeConfigurable : Configurable {
                 }
             ApplicationManager.getApplication().invokeLater {
                 if (result.succeeded) {
+                    BridgeSettings.getInstance().snapshot().also { current ->
+                        if (clientKey == "codex") {
+                            current.codexConfigured = true
+                            if (selectedDistro !in current.configuredCodexDistros) current.configuredCodexDistros.add(selectedDistro)
+                        } else if (clientKey == "claude") {
+                            current.claudeConfigured = true
+                            if (selectedDistro !in current.configuredClaudeDistros) current.configuredClaudeDistros.add(selectedDistro)
+                        } else {
+                            if (selectedDistro !in current.configuredCopilotDistros) current.configuredCopilotDistros.add(selectedDistro)
+                        }
+                        BridgeSettings.getInstance().update(current)
+                    }
                     status.text = "$clientName configured in WSL '$selectedDistro': $bridgeEndpoint"
                 } else {
                     val message = result.output.ifBlank { "Configuration command failed with exit code ${result.exitCode}." }
