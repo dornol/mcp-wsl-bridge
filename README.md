@@ -38,3 +38,6 @@ MIT. See [LICENSE](LICENSE).
 ## Development
 
 Requires JDK 21 or newer. Run `./gradlew build` to build and `./gradlew runIde` to launch a sandbox IDE.
+
+The planned automatic-startup hardening and IntelliJ status bar indicator are
+described in [Automatic Startup and Status Widget](docs/STARTUP_AND_STATUS_WIDGET.md).
