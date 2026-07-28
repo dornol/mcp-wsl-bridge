@@ -101,6 +101,7 @@ intellijPlatform {
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_21
+        freeCompilerArgs.add("-Xjvm-default=all")
     }
 }
 

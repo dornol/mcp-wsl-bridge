@@ -17,6 +17,7 @@ class McpBridgeServiceTest {
         try {
             service.restart()
             assertEquals(emptyList(), service.status().runningAddresses)
+            assertEquals(McpBridgeService.State.DISABLED, service.status().state)
         } finally {
             service.dispose()
         }
@@ -52,6 +53,7 @@ class McpBridgeServiceTest {
 
         try {
             await { service.status().runningAddresses == listOf("127.0.0.1") }
+            assertEquals(McpBridgeService.State.CONNECTED, service.status().state)
             Socket("127.0.0.1", basePort + 1).use { client ->
                 client.getOutputStream().apply {
                     write("GET /stream HTTP/1.1\r\nHost: old-address\r\n\r\n".toByteArray())
@@ -110,9 +112,34 @@ class McpBridgeServiceTest {
         try {
             await { service.status().error?.startsWith("Cannot bind") == true }
             assertTrue(service.status().runningAddresses.isEmpty())
+            assertEquals(McpBridgeService.State.ERROR, service.status().state)
         } finally {
             service.dispose()
             occupied.close()
+        }
+    }
+
+    @Test
+    fun `missing IntelliJ MCP target remains in starting state`() {
+        val settings = enabledSettings(freeConsecutivePort()).apply {
+            update(snapshot().apply { targetMode = BridgeSettings.TargetMode.AUTO })
+        }
+        val service = McpBridgeService(
+            settingsProvider = { settings },
+            targetResolver = McpTargetResolver(
+                optionsPathProvider = { java.nio.file.Path.of("/definitely-missing-mcp-options") },
+                portProbe = { false },
+            ),
+            addressesProvider = { listOf("127.0.0.1") },
+        )
+        try {
+            await {
+                service.status().state == McpBridgeService.State.STARTING &&
+                    service.status().error?.startsWith("IntelliJ MCP server was not found") == true
+            }
+            assertTrue(service.status().error.orEmpty().startsWith("IntelliJ MCP server was not found"))
+        } finally {
+            service.dispose()
         }
     }
 
@@ -152,6 +179,7 @@ class McpBridgeServiceTest {
         settingsProvider = { settings },
         targetResolver = McpTargetResolver(optionsPathProvider = { error("manual target must not read IntelliJ options") }),
         addressesProvider = { addresses.toList() },
+        experimentalHttpProxyEnabled = false,
     )
 
     private fun enabledSettings(basePort: Int): BridgeSettings = BridgeSettings().apply {
