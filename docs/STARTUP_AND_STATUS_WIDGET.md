@@ -101,6 +101,26 @@ snapshot changes and must perform UI updates on the event dispatch thread.
 Register a `StatusBarWidgetFactory` and display a compact icon in the lower
 right status bar.
 
+### Icon design
+
+Use the existing plugin logo as the visual basis: a simplified bridge with
+opposing arrows. The status bar icon should be a 16x16 monochrome gray SVG so
+it fits IntelliJ's status bar styling. Do not use a fully colored icon for each
+state.
+
+Add a small circular status badge at the icon's upper-right corner:
+
+| State | Icon | Badge |
+| --- | --- | --- |
+| `DISABLED` | Gray bridge | No badge or gray badge |
+| `STARTING` | Gray bridge | Yellow badge |
+| `CONNECTED` | Gray bridge | Green badge |
+| `ERROR` | Gray bridge | Red badge |
+
+The badge is only a visual hint. Tooltips and accessible text must include the
+state name and, for errors, the actionable error message. State must never be
+communicated by color alone.
+
 | State | Appearance | Tooltip |
 | --- | --- | --- |
 | `DISABLED` | neutral/gray | `MCP WSL Bridge is disabled` |

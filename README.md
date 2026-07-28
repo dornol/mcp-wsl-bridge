@@ -31,6 +31,13 @@ Do not select a Wi-Fi, Ethernet, or VPN address unless you intend to expose the 
 
 See [Privacy](PRIVACY.md) for local-data handling and [Publishing](PUBLISHING.md) for Marketplace release preparation.
 
+## Documentation map
+
+- [Automatic Startup and Status Widget](docs/STARTUP_AND_STATUS_WIDGET.md) — startup reliability, adaptive retry, service states, and status bar widget plan.
+- [IntelliJ API Compatibility and Marketplace Review](docs/PLUGIN_API_COMPATIBILITY.md) — public API policy, verifier checklist, and release review requirements.
+- [Publishing](PUBLISHING.md) — Marketplace release preparation and publishing workflow.
+- [Privacy](PRIVACY.md) — local-data handling and privacy notes.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
