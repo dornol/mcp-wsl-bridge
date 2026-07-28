@@ -96,9 +96,10 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
         )
         popup.pack(true, true)
         val anchorLocation = anchor.locationOnScreen
+        val popupHeight = popup.content.preferredSize.height
         popup.showInScreenCoordinates(
             anchor,
-            Point(anchorLocation.x, anchorLocation.y - popup.size.height - 4),
+            Point(anchorLocation.x, anchorLocation.y - popupHeight - 4),
         )
     }
 

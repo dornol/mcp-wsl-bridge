@@ -24,6 +24,7 @@ class McpBridgeService(
         NetworkInterfaces.addressesForInterfaces(snapshot.selectedInterfaceNames)
             .ifEmpty { snapshot.selectedAddresses.ifEmpty { NetworkInterfaces.suggestedWslAddresses() } }
     },
+    private val experimentalHttpProxyEnabled: Boolean = true,
 ) : Disposable {
     private val log = Logger.getInstance(McpBridgeService::class.java)
     private val settings get() = settingsProvider()
@@ -31,7 +32,7 @@ class McpBridgeService(
     private val ioExecutor: ExecutorService = Executors.newCachedThreadPool { runnable ->
         Thread(runnable, "MCP WSL Bridge I/O").apply { isDaemon = true }
     }
-    private val experimentalHttpProxy = ExperimentalHttpReverseProxy(ioExecutor)
+    private val experimentalHttpProxy = if (experimentalHttpProxyEnabled) ExperimentalHttpReverseProxy(ioExecutor) else null
     private val tcpRelay = McpTcpRelay(ioExecutor) { activeTarget }
     private val refreshExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "MCP WSL Bridge refresh").apply { isDaemon = true }
@@ -138,9 +139,9 @@ class McpBridgeService(
         requestedAddresses.filter { !listeners.containsKey(it) }.forEach { bind(it, snapshot.listenerPort + 1) }
         val proxyIdentity = requestedAddresses.sorted().joinToString() + "|" + snapshot.listenerPort + "|" + target.host + "|" + target.port
         if (listeners.isNotEmpty() && experimentalProxyIdentity != proxyIdentity) {
-            experimentalHttpProxy.stop()
+            experimentalHttpProxy?.stop()
             requestedAddresses.forEach { address ->
-                runCatching { experimentalHttpProxy.start(address, snapshot.listenerPort, target) }
+                runCatching { experimentalHttpProxy?.start(address, snapshot.listenerPort, target) }
                     .onFailure { log.info("Experimental HTTP reverse proxy is unavailable: ${it.message}") }
             }
             experimentalProxyIdentity = proxyIdentity
@@ -258,7 +259,7 @@ class McpBridgeService(
         boundPort = null
         ensuredWslProxy = null
         experimentalProxyIdentity = null
-        experimentalHttpProxy.stop()
+        experimentalHttpProxy?.stop()
     }
 
     private fun ensureWslLoopbackProxy(snapshot: BridgeSettings.State) {

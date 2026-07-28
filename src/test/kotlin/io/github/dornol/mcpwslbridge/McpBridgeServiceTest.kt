@@ -179,6 +179,7 @@ class McpBridgeServiceTest {
         settingsProvider = { settings },
         targetResolver = McpTargetResolver(optionsPathProvider = { error("manual target must not read IntelliJ options") }),
         addressesProvider = { addresses.toList() },
+        experimentalHttpProxyEnabled = false,
     )
 
     private fun enabledSettings(basePort: Int): BridgeSettings = BridgeSettings().apply {
