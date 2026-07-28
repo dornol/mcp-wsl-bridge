@@ -11,6 +11,10 @@
                 serviceImplementation="io.github.dornol.mcpwslbridge.McpBridgeService"/>
         <appLifecycleListener
                 implementation="io.github.dornol.mcpwslbridge.McpBridgeAppLifecycleListener"/>
+        <postStartupActivity
+                implementation="io.github.dornol.mcpwslbridge.McpBridgeProjectStartupActivity"/>
+        <statusBarWidgetFactory
+                implementation="io.github.dornol.mcpwslbridge.McpBridgeStatusBarWidgetFactory"/>
         <applicationConfigurable
                 id="io.github.dornol.mcpwslbridge.settings"
                 parentId="tools"

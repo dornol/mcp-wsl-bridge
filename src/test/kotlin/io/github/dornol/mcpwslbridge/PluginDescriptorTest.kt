@@ -24,6 +24,16 @@ class PluginDescriptorTest {
         assertTrue(lifecycleListeners.any {
             it.getAttribute("implementation").contains("McpBridgeAppLifecycleListener")
         })
+        val startupActivities = (0 until document.getElementsByTagName("postStartupActivity").length)
+            .map { document.getElementsByTagName("postStartupActivity").item(it) as Element }
+        assertTrue(startupActivities.any {
+            it.getAttribute("implementation").contains("McpBridgeProjectStartupActivity")
+        })
+        val widgetFactories = (0 until document.getElementsByTagName("statusBarWidgetFactory").length)
+            .map { document.getElementsByTagName("statusBarWidgetFactory").item(it) as Element }
+        assertTrue(widgetFactories.any {
+            it.getAttribute("implementation").contains("McpBridgeStatusBarWidgetFactory")
+        })
 
         val configurables = (0 until document.getElementsByTagName("applicationConfigurable").length)
             .map { document.getElementsByTagName("applicationConfigurable").item(it) as Element }
