@@ -17,6 +17,7 @@ import com.intellij.util.Consumer
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseEvent
+import java.awt.Point
 import javax.swing.Icon
 
 class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, Disposable {
@@ -93,7 +94,12 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
             JBPopupFactory.ActionSelectionAid.MNEMONICS,
             true,
         )
-        popup.showUnderneathOf(anchor)
+        popup.pack(true, true)
+        val anchorLocation = anchor.locationOnScreen
+        popup.showInScreenCoordinates(
+            anchor,
+            Point(anchorLocation.x, anchorLocation.y - popup.size.height - 4),
+        )
     }
 
     private fun tooltipFor(status: McpBridgeService.Status): String = buildString {
