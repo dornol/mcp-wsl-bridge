@@ -14,6 +14,7 @@
         <postStartupActivity
                 implementation="io.github.dornol.mcpwslbridge.McpBridgeProjectStartupActivity"/>
         <statusBarWidgetFactory
+                id="MCP WSL Bridge Status"
                 implementation="io.github.dornol.mcpwslbridge.McpBridgeStatusBarWidgetFactory"/>
         <applicationConfigurable
                 id="io.github.dornol.mcpwslbridge.settings"
