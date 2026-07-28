@@ -3,8 +3,8 @@ package io.github.dornol.mcpwslbridge
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.ide.DataManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -90,7 +90,7 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
         val popup = JBPopupFactory.getInstance().createActionGroupPopup(
             "MCP WSL Bridge",
             group,
-            DataContext { null },
+            DataManager.getInstance().getDataContext(anchor),
             JBPopupFactory.ActionSelectionAid.MNEMONICS,
             true,
         )
