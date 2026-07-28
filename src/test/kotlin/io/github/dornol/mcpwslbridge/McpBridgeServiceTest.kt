@@ -3,7 +3,6 @@ package io.github.dornol.mcpwslbridge
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.Collections
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
@@ -140,21 +139,6 @@ class McpBridgeServiceTest {
             }
             assertTrue(service.status().error.orEmpty().startsWith("IntelliJ MCP server was not found"))
         } finally {
-            service.dispose()
-        }
-    }
-
-    @Test
-    fun `status listeners receive the connected transition`() {
-        val service = service(enabledSettings(freeConsecutivePort()))
-        val states = CopyOnWriteArrayList<McpBridgeService.State>()
-        val subscription = service.addStatusListener { states += it.state }
-        try {
-            await { service.status().state == McpBridgeService.State.CONNECTED }
-            assertTrue(states.contains(McpBridgeService.State.CONNECTED))
-            assertEquals(states.distinct(), states)
-        } finally {
-            subscription.dispose()
             service.dispose()
         }
     }

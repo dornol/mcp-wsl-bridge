@@ -48,7 +48,7 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
 
         override fun getTooltipText(): String = tooltipFor(status)
 
-        override fun getClickConsumer(): Consumer<MouseEvent> = Consumer { showPopup() }
+        override fun getClickConsumer(): Consumer<MouseEvent> = Consumer { showPopup(it.component) }
     }
 
     override fun dispose() {
@@ -57,7 +57,7 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
         statusBar = null
     }
 
-    private fun showPopup() {
+    private fun showPopup(anchor: java.awt.Component) {
         val group = com.intellij.openapi.actionSystem.DefaultActionGroup()
         group.add(object : AnAction(tooltipFor(status)) {
             override fun actionPerformed(event: AnActionEvent) = Unit
@@ -93,7 +93,7 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
             JBPopupFactory.ActionSelectionAid.MNEMONICS,
             true,
         )
-        popup.showUnderneathOf(statusBar?.component ?: return)
+        popup.showUnderneathOf(anchor)
     }
 
     private fun tooltipFor(status: McpBridgeService.Status): String = buildString {
