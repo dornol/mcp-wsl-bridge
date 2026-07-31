@@ -52,6 +52,13 @@ intellijPlatform {
         <p><b>Security:</b> select only network interfaces you intend to expose. The bridge has no authentication and should not be bound to Wi-Fi, Ethernet, or VPN addresses unless required.</p>
         """.trimIndent()
         changeNotes = """
+            <h2>0.1.9</h2>
+            <ul>
+              <li>Add multi-server MCP routing, including the IDE Index MCP preset.</li>
+              <li>Add WSL client configuration and removal actions for Codex, Claude Code, and GitHub Copilot CLI.</li>
+              <li>Redesign MCP server settings with a native list, detail panel, templates, and popup editing.</li>
+              <li>Improve bridge status reporting, automatic WSL endpoint refresh, and HTTP routing compatibility.</li>
+            </ul>
             <h2>0.1.8</h2>
             <ul>
               <li>Start the bridge automatically when an IntelliJ project opens.</li>

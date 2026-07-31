@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9 - 2026-07-31
+
+- Add multi-server MCP routing, including the IDE Index MCP preset.
+- Add WSL client configuration and removal actions for Codex, Claude Code, and GitHub Copilot CLI.
+- Redesign MCP server settings with a native list, detail panel, templates, and popup editing.
+- Improve bridge status reporting, automatic WSL endpoint refresh, and HTTP routing compatibility.
+- Verify compatibility against IntelliJ IDEA 2025.2 through 2026.1.
+
 ## 0.1.7 - 2026-07-27
 
 - Use the public application-frame lifecycle callback for automatic startup.
