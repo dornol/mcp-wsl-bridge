@@ -1,60 +1,83 @@
 package io.github.dornol.mcpwslbridge
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionHolder
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBTextField
 import java.awt.BorderLayout
+import java.awt.Container
 import java.awt.FlowLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
+import java.awt.Point
 import java.awt.datatransfer.StringSelection
 import java.awt.Toolkit
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
+import javax.swing.DefaultListCellRenderer
+import javax.swing.DefaultListModel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
+import javax.swing.JSplitPane
 import javax.swing.JTabbedPane
-import javax.swing.JTable
 import javax.swing.ListSelectionModel
 import javax.swing.JTextArea
-import javax.swing.table.DefaultTableModel
 
 class BridgeConfigurable : Configurable {
     private var root: JPanel? = null
     private val enabled = JBCheckBox("Enable MCP WSL Bridge and start it automatically with IntelliJ")
     private val listenerPort = JBTextField()
-    private val serverTableModel = object : DefaultTableModel(SERVER_COLUMNS, 0) {
-        override fun getColumnClass(column: Int): Class<*> = if (column == 0) Boolean::class.java else String::class.java
-
-        override fun isCellEditable(row: Int, column: Int): Boolean = false
+    private data class ServerListItem(val profile: BridgeSettings.ServerProfile) {
+        override fun toString(): String = profile.displayName
     }
-    private val serverTable = JTable(serverTableModel).apply {
-        autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
-        setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
-        setShowGrid(true)
-        columnModel.getColumn(0).preferredWidth = 55
-        columnModel.getColumn(1).preferredWidth = 105
-        columnModel.getColumn(2).preferredWidth = 150
-        columnModel.getColumn(3).preferredWidth = 105
-        columnModel.getColumn(4).preferredWidth = 190
-        columnModel.getColumn(5).preferredWidth = 135
-        columnModel.getColumn(6).preferredWidth = 80
-        addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(event: MouseEvent) {
-                if (event.clickCount == 2 && event.button == MouseEvent.BUTTON1) editSelectedServer()
+    private val serverListModel = DefaultListModel<ServerListItem>()
+    private val serverList = JBList(serverListModel).apply {
+        selectionMode = ListSelectionModel.SINGLE_SELECTION
+        cellRenderer = object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: javax.swing.JList<*>,
+                value: Any?,
+                index: Int,
+                isSelected: Boolean,
+                cellHasFocus: Boolean,
+            ): java.awt.Component {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+                val profile = (value as? ServerListItem)?.profile
+                text = profile?.let {
+                    val lock = if (it.id == "intellij") "🔒 " else ""
+                    "$lock${it.displayName}  —  ${it.publicPath}"
+                } ?: ""
+                return this
+            }
+        }
+        addListSelectionListener { updateServerDetails() }
+        addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(event: java.awt.event.MouseEvent) {
+                if (event.clickCount == 2 && event.button == java.awt.event.MouseEvent.BUTTON1) editSelectedServer()
             }
         })
     }
+    private val serverDetailName = JBLabel()
+    private val serverDetailType = JBLabel()
+    private val serverDetailPath = JBLabel()
+    private val serverDetailTarget = JBLabel()
+    private val serverDetailStatus = JBLabel()
+    private val serverDetailNote = JBLabel()
     private val interfacePanel = JPanel().apply { layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS) }
     private val interfaceChecks = linkedMapOf<String, JBCheckBox>()
     private val interfaceNamesByAddress = linkedMapOf<String, String>()
@@ -100,104 +123,159 @@ class BridgeConfigurable : Configurable {
     }
 
     private fun serverConfigurationPanel(): JComponent = JPanel(BorderLayout(0, 4)).apply {
-        add(JBLabel("MCP servers exposed through the WSL bridge:"), BorderLayout.NORTH)
-        add(JScrollPane(serverTable).apply { preferredSize = java.awt.Dimension(900, 150) }, BorderLayout.CENTER)
+        border = BorderFactory.createTitledBorder("MCP servers")
         add(JPanel(BorderLayout()).apply {
-            add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-                add(JButton("+").apply {
-                    toolTipText = "Add MCP server"
-                    addActionListener { openServerDialog() }
-                })
-                add(JButton("✎").apply {
-                    toolTipText = "Edit selected MCP server"
-                    addActionListener { editSelectedServer() }
-                })
-                add(JButton("−").apply {
-                    toolTipText = "Remove selected MCP server"
-                    addActionListener { removeSelectedServers() }
-                })
-                add(JButton("Add IDE Index MCP").apply {
-                    toolTipText = "Add the IDE Index MCP server preset"
-                    addActionListener { addPreset(indexProfile()) }
-                })
-            }, BorderLayout.WEST)
-            add(JBLabel("  IntelliJ MCP is always enabled and detects its port automatically."), BorderLayout.CENTER)
-        }, BorderLayout.SOUTH)
+            lateinit var addButtonComponent: JComponent
+            val decorator = ToolbarDecorator.createDecorator(serverList)
+                .setAddAction { showAddServerPopup(addButtonComponent) }
+                .setEditAction { editSelectedServer() }
+                .setRemoveAction { removeSelectedServers() }
+                .setAddActionName("Add MCP server")
+                .setEditActionName("Edit selected MCP server")
+                .setRemoveActionName("Remove selected MCP server")
+                .setRemoveActionUpdater { serverList.selectedIndex >= 0 && serverList.selectedValue?.profile?.id != "intellij" }
+            val decoratedPanel = decorator.createPanel()
+            val addAction = ToolbarDecorator.findAddButton(decoratedPanel)
+            addButtonComponent = addAction?.let { findActionButtonComponent(decoratedPanel, it) } ?: decoratedPanel
+            add(decoratedPanel, BorderLayout.CENTER)
+        }, BorderLayout.NORTH)
+        add(JSplitPane(
+            JSplitPane.HORIZONTAL_SPLIT,
+            JScrollPane(serverList).apply { preferredSize = java.awt.Dimension(260, 175) },
+            serverDetailsPanel(),
+        ).apply {
+            resizeWeight = 0.32
+            border = null
+        }, BorderLayout.CENTER)
+        add(JBLabel("Select a server to view its connection details. Double-click to edit."), BorderLayout.SOUTH)
+        preferredSize = java.awt.Dimension(900, 240)
     }
 
-    private fun addCustomServer() {
-        openServerDialog()
+    private fun showAddServerPopup(button: JComponent) {
+        val actions = DefaultActionGroup(
+            object : AnAction("Custom HTTP server") {
+                override fun actionPerformed(event: AnActionEvent) = openServerDialog()
+            },
+            object : AnAction("IDE Index MCP template") {
+                override fun actionPerformed(event: AnActionEvent) = addPreset(indexProfile())
+            },
+        )
+        val popup = JBPopupFactory.getInstance()
+            .createActionGroupPopup(
+                "Add MCP server",
+                actions,
+                DataContext.EMPTY_CONTEXT,
+                JBPopupFactory.ActionSelectionAid.MNEMONICS,
+                true,
+            )
+        val location = button.locationOnScreen
+        popup.showInScreenCoordinates(button, Point(location.x, location.y + button.height))
+    }
+
+    private fun findActionButtonComponent(root: JComponent, action: AnAction): JComponent? {
+        fun find(component: java.awt.Component): JComponent? {
+            if (component is JComponent && component is AnActionHolder && component.action === action) return component
+            if (component is Container) {
+                component.components.forEach { child -> find(child)?.let { return it } }
+            }
+            return null
+        }
+        return find(root)
+    }
+
+    private fun serverDetailsPanel(): JComponent = JPanel(BorderLayout(8, 8)).apply {
+        border = BorderFactory.createEmptyBorder(8, 12, 8, 8)
+        add(JPanel(GridBagLayout()).apply {
+            val constraints = GridBagConstraints().apply {
+                insets = Insets(3, 3, 3, 3)
+                anchor = GridBagConstraints.WEST
+                fill = GridBagConstraints.HORIZONTAL
+            }
+            fun detail(label: String, value: JComponent, row: Int) {
+                constraints.gridx = 0; constraints.gridy = row; constraints.weightx = 0.0
+                add(JBLabel(label), constraints)
+                constraints.gridx = 1; constraints.weightx = 1.0
+                add(value, constraints)
+            }
+            detail("Name", serverDetailName, 0)
+            detail("Type", serverDetailType, 1)
+            detail("MCP path", serverDetailPath, 2)
+            detail("Target", serverDetailTarget, 3)
+            detail("Status", serverDetailStatus, 4)
+            constraints.gridx = 1; constraints.gridy = 5; constraints.weightx = 1.0
+            add(serverDetailNote, constraints)
+        }, BorderLayout.NORTH)
+    }
+
+    private fun updateServerDetails() {
+        val item = serverList.selectedValue
+        if (item == null) {
+            serverDetailName.text = "—"
+            serverDetailType.text = "—"
+            serverDetailPath.text = "—"
+            serverDetailTarget.text = "—"
+            serverDetailStatus.text = "No server selected"
+            serverDetailNote.text = ""
+            return
+        }
+        val profile = item.profile
+        val builtIn = profile.serverType == BridgeSettings.ServerType.INTELLIJ_BUILT_IN
+        serverDetailName.text = profile.displayName
+        serverDetailType.text = if (builtIn) "Built-in IntelliJ MCP" else "HTTP MCP"
+        serverDetailPath.text = profile.publicPath
+        serverDetailTarget.text = if (builtIn) "Auto-detected IntelliJ MCP port" else "${profile.targetHost}:${profile.targetPort}"
+        serverDetailStatus.text = if (profile.enabled) "Enabled" else "Disabled"
+        serverDetailNote.text = if (builtIn) "Always enabled and read-only" else "Double-click the item or use Edit to change it"
     }
 
     private fun editSelectedServer() {
-        val row = serverTable.selectedRow
-        if (row < 0) return
-        if (serverTableModel.getValueAt(row, ID_COLUMN)?.toString() == "intellij") {
+        val index = serverList.selectedIndex
+        if (index < 0) return
+        if (serverListModel.getElementAt(index).profile.id == "intellij") {
             Messages.showInfoMessage(
                 "The built-in IntelliJ MCP server is always enabled and cannot be changed or removed.",
                 "MCP WSL Bridge",
             )
             return
         }
-        openServerDialog(row)
+        openServerDialog(index)
     }
 
-    private fun openServerDialog(row: Int? = null) {
-        val existing = row?.let { serverProfileAt(it) }
+    private fun openServerDialog(index: Int? = null) {
+        val existing = index?.let { serverListModel.getElementAt(it).profile }
         val dialog = McpServerDialog(existing)
         if (!dialog.showAndGet()) return
         val profile = dialog.profile()
-        val duplicate = (0 until serverTableModel.rowCount).any { index ->
-            index != row && serverTableModel.getValueAt(index, ID_COLUMN)?.toString() == profile.id
+        val duplicate = (0 until serverListModel.size()).any { currentIndex ->
+            currentIndex != index && serverListModel.getElementAt(currentIndex).profile.id == profile.id
         }
         if (duplicate) {
             Messages.showErrorDialog("MCP server IDs must be unique.", "MCP WSL Bridge")
             return
         }
-        val values = arrayOf<Any?>(
-            profile.enabled,
-            profile.id,
-            profile.displayName,
-            "http",
-            profile.publicPath,
-            profile.targetHost,
-            profile.targetPort.toString(),
-        )
-        if (row == null) {
-            serverTableModel.addRow(values)
-            serverTable.setRowSelectionInterval(serverTableModel.rowCount - 1, serverTableModel.rowCount - 1)
+        val item = ServerListItem(profile)
+        if (index == null) {
+            serverListModel.addElement(item)
+            serverList.selectedIndex = serverListModel.size() - 1
         } else {
-            values.forEachIndexed { column, value -> serverTableModel.setValueAt(value, row, column) }
-            serverTable.setRowSelectionInterval(row, row)
+            serverListModel.setElementAt(item, index)
+            serverList.selectedIndex = index
         }
     }
 
-    private fun serverProfileAt(row: Int): BridgeSettings.ServerProfile = BridgeSettings.ServerProfile(
-        id = serverTableModel.getValueAt(row, 1).toString(),
-        displayName = serverTableModel.getValueAt(row, 2).toString(),
-        enabled = serverTableModel.getValueAt(row, 0) == true,
-        publicPath = serverTableModel.getValueAt(row, 4).toString(),
-        targetHost = serverTableModel.getValueAt(row, 5).toString(),
-        targetPort = serverTableModel.getValueAt(row, 6).toString().toIntOrNull() ?: 0,
-        targetPath = serverTableModel.getValueAt(row, 4).toString(),
-        targetMode = BridgeSettings.TargetMode.MANUAL,
-        serverType = BridgeSettings.ServerType.HTTP,
-    )
-
     private fun removeSelectedServers() {
-        val protectedRows = serverTable.selectedRows.filter {
-            serverTableModel.getValueAt(it, ID_COLUMN)?.toString() == "intellij"
-        }
-        if (protectedRows.isNotEmpty()) {
+        val index = serverList.selectedIndex
+        if (index < 0) return
+        if (serverListModel.getElementAt(index).profile.id == "intellij") {
             Messages.showInfoMessage(
                 "The built-in IntelliJ MCP server is always enabled and cannot be changed or removed.",
                 "MCP WSL Bridge",
             )
+            return
         }
-        serverTable.selectedRows
-            .filterNot { it in protectedRows }
-            .sortedDescending()
-            .forEach(serverTableModel::removeRow)
+        serverListModel.remove(index)
+        if (serverListModel.size() > 0) serverList.selectedIndex = (index - 1).coerceAtLeast(0).coerceAtMost(serverListModel.size() - 1)
+        updateServerDetails()
     }
 
     override fun isModified(): Boolean {
@@ -205,14 +283,14 @@ class BridgeConfigurable : Configurable {
         return enabled.isSelected != state.enabled ||
             listenerPort.text.toIntOrNull() != state.listenerPort ||
             selectedInterfaceNames().toSet() != storedInterfaceNames(state) ||
-            tableProfiles() != uiProfiles(state) ||
+            serverProfiles() != uiProfiles(state) ||
             (!distributionsLoading && (distro.selectedItem as? String ?: "") != state.wslDistro)
     }
 
     override fun apply() {
         val port = listenerPort.text.toIntOrNull()?.takeIf { it in 1..65535 }
             ?: throw IllegalArgumentException("Listener port must be between 1 and 65535.")
-        val profiles = tableProfiles()
+        val profiles = serverProfiles()
         val currentState = BridgeSettings.getInstance().snapshot()
         BridgeSettings.getInstance().update(
             currentState.copy(
@@ -236,7 +314,7 @@ class BridgeConfigurable : Configurable {
         val state = BridgeSettings.getInstance().snapshot()
         enabled.isSelected = state.enabled
         listenerPort.text = state.listenerPort.toString()
-        setTableProfiles(uiProfiles(state))
+        setServerProfiles(uiProfiles(state))
         populateInterfaces(state.selectedAddresses.toSet(), state.selectedInterfaceNames.toSet())
         populateDistributionsAsync(state.wslDistro)
         updateStatus()
@@ -503,48 +581,15 @@ class BridgeConfigurable : Configurable {
     private fun uiProfiles(state: BridgeSettings.State): List<BridgeSettings.ServerProfile> =
         listOf(intellijProfile()) + state.servers.filter { it.id != "intellij" }
 
-    private fun setTableProfiles(profiles: List<BridgeSettings.ServerProfile>) {
-        serverTableModel.setRowCount(0)
-        profiles.forEach { profile ->
-            serverTableModel.addRow(arrayOf<Any?>(
-                profile.enabled,
-                profile.id,
-                profile.displayName,
-                if (profile.serverType == BridgeSettings.ServerType.INTELLIJ_BUILT_IN) "intellij" else "http",
-                profile.publicPath,
-                profile.targetHost,
-                profile.targetPort.toString(),
-            ))
-        }
+    private fun setServerProfiles(profiles: List<BridgeSettings.ServerProfile>) {
+        serverListModel.clear()
+        profiles.forEach { serverListModel.addElement(ServerListItem(it)) }
+        if (serverListModel.size() > 0) serverList.selectedIndex = 0
+        updateServerDetails()
     }
 
-    private fun tableProfiles(): List<BridgeSettings.ServerProfile> {
-        if (serverTable.isEditing) serverTable.cellEditor.stopCellEditing()
-        val profiles = (0 until serverTableModel.rowCount).map { row ->
-            fun value(column: Int): String = serverTableModel.getValueAt(row, column)?.toString()?.trim().orEmpty()
-            val line = row + 1
-            val id = value(1)
-            require(id.matches(Regex("[A-Za-z0-9._-]+"))) { "Server row $line has an invalid ID." }
-            val type = when (value(3).lowercase()) {
-                "intellij", "built-in", "builtin" -> BridgeSettings.ServerType.INTELLIJ_BUILT_IN
-                "http" -> BridgeSettings.ServerType.HTTP
-                else -> throw IllegalArgumentException("Server row $line type must be 'intellij' or 'http'.")
-            }
-            val port = value(6).toIntOrNull()?.takeIf { it in 1..65535 }
-                ?: throw IllegalArgumentException("Server row $line has an invalid port.")
-            if (id == "intellij") return@map intellijProfile()
-            BridgeSettings.ServerProfile(
-                id = id,
-                displayName = value(2).ifBlank { id },
-                enabled = serverTableModel.getValueAt(row, 0) == true,
-                publicPath = normalizeMcpPath(value(4)),
-                targetHost = value(5).also { require(it.isNotEmpty()) { "Server row $line target host is empty." } },
-                targetPort = port,
-                targetPath = normalizeMcpPath(value(4)),
-                targetMode = BridgeSettings.TargetMode.MANUAL,
-                serverType = type,
-            )
-        }
+    private fun serverProfiles(): List<BridgeSettings.ServerProfile> {
+        val profiles = (0 until serverListModel.size()).map { serverListModel.getElementAt(it).profile }
         require(profiles.isNotEmpty()) { "Add at least one MCP server." }
         require(profiles.map { it.id }.distinct().size == profiles.size) { "MCP server IDs must be unique." }
         require(profiles.map { it.publicPath }.distinct().size == profiles.size) { "MCP public paths must be unique." }
@@ -570,19 +615,12 @@ class BridgeConfigurable : Configurable {
     }
 
     private fun addPreset(profile: BridgeSettings.ServerProfile) {
-        if ((0 until serverTableModel.rowCount).any { serverTableModel.getValueAt(it, ID_COLUMN) == profile.id }) {
+        if ((0 until serverListModel.size()).any { serverListModel.getElementAt(it).profile.id == profile.id }) {
             Messages.showInfoMessage("${profile.displayName} is already in the server list.", "MCP WSL Bridge")
             return
         }
-        serverTableModel.addRow(arrayOf<Any?>(
-            profile.enabled,
-            profile.id,
-            profile.displayName,
-            if (profile.serverType == BridgeSettings.ServerType.INTELLIJ_BUILT_IN) "intellij" else "http",
-            profile.publicPath,
-            profile.targetHost,
-            profile.targetPort.toString(),
-        ))
+        serverListModel.addElement(ServerListItem(profile))
+        serverList.selectedIndex = serverListModel.size() - 1
     }
 
     private fun intellijProfile() = BridgeSettings.ServerProfile(
@@ -607,13 +645,6 @@ class BridgeConfigurable : Configurable {
         serverType = BridgeSettings.ServerType.HTTP,
     )
 
-    private companion object {
-        val SERVER_COLUMNS = arrayOf(
-            "Enabled", "ID", "Name", "Type", "MCP path", "Target host", "Port",
-        )
-        const val ID_COLUMN = 1
-        const val PUBLIC_PATH_COLUMN = 4
-    }
 }
 
 private class McpServerDialog(existing: BridgeSettings.ServerProfile?) : DialogWrapper(null) {
