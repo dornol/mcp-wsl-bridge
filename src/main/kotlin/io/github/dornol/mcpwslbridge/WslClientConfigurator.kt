@@ -23,25 +23,46 @@ object WslClientConfigurator {
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
-        runInWsl(distro, listOf("codex", "mcp", "remove", SERVER_NAME))
-        return runInWsl(distro, listOf("codex", "mcp", "add", SERVER_NAME, "--url", endpoint))
+        return configureCodex(distro, endpoint, SERVER_NAME)
     }
 
     fun configureClaudeCode(distro: String, endpoint: String): CommandResult {
-        runInWsl(distro, listOf("claude", "mcp", "remove", "--scope", "user", SERVER_NAME))
+        return configureClaudeCode(distro, endpoint, SERVER_NAME)
+    }
+
+    fun configureCodex(distro: String, endpoint: String, serverName: String): CommandResult {
+        runInWsl(distro, listOf("codex", "mcp", "remove", serverName))
+        return runInWsl(distro, listOf("codex", "mcp", "add", serverName, "--url", endpoint))
+    }
+
+    fun configureClaudeCode(distro: String, endpoint: String, serverName: String): CommandResult {
+        runInWsl(distro, listOf("claude", "mcp", "remove", "--scope", "user", serverName))
         return runInWsl(
             distro,
-            listOf("claude", "mcp", "add", "--scope", "user", "--transport", "http", SERVER_NAME, endpoint),
+            listOf("claude", "mcp", "add", "--scope", "user", "--transport", "http", serverName, endpoint),
         )
     }
 
     fun configureCopilotCli(distro: String, endpoint: String): CommandResult {
-        runInWsl(distro, listOf("copilot", "mcp", "remove", SERVER_NAME))
+        return configureCopilotCli(distro, endpoint, SERVER_NAME)
+    }
+
+    fun configureCopilotCli(distro: String, endpoint: String, serverName: String): CommandResult {
+        runInWsl(distro, listOf("copilot", "mcp", "remove", serverName))
         return runInWsl(
             distro,
-            listOf("copilot", "mcp", "add", "--transport", "http", SERVER_NAME, endpoint),
+            listOf("copilot", "mcp", "add", "--transport", "http", serverName, endpoint),
         )
     }
+
+    fun removeCodex(distro: String, serverName: String): CommandResult =
+        runInWsl(distro, listOf("codex", "mcp", "remove", serverName))
+
+    fun removeClaudeCode(distro: String, serverName: String): CommandResult =
+        runInWsl(distro, listOf("claude", "mcp", "remove", "--scope", "user", serverName))
+
+    fun removeCopilotCli(distro: String, serverName: String): CommandResult =
+        runInWsl(distro, listOf("copilot", "mcp", "remove", serverName))
 
     fun genericJson(endpoint: String): String = """
         {
@@ -52,6 +73,17 @@ object WslClientConfigurator {
           }
         }
     """.trimIndent()
+
+    fun genericJson(endpoints: Map<String, String>): String {
+        val entries = endpoints.entries.joinToString(",\n") { (name, endpoint) ->
+            "    \"${jsonEscape(name)}\": {\n      \"url\": \"${jsonEscape(endpoint)}\"\n    }"
+        }
+        return "{\n  \"mcpServers\": {\n$entries\n  }\n}"
+    }
+
+    private fun jsonEscape(value: String): String = value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
 
     private fun runInWsl(distro: String, command: List<String>): CommandResult {
         require(distro.isNotBlank()) { "Choose a WSL distribution first." }

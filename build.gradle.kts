@@ -40,13 +40,13 @@ intellijPlatform {
         }
         description = """
         <p>Exposes IntelliJ's loopback-only MCP server to WSL through selected Windows network interfaces.</p>
-        <p>Choose one or more NIC addresses, then MCP WSL Bridge transparently relays each connection to the IDE's active MCP port.</p>
+        <p>Choose one or more NIC addresses, then MCP WSL Bridge transparently routes multiple HTTP MCP servers through one WSL-facing port using separate paths.</p>
         <h2>Usage</h2>
         <ol>
           <li>Enable IntelliJ's built-in MCP server in <b>Settings | Tools | MCP Server</b>.</li>
           <li>Open <b>Settings | Tools | MCP WSL Bridge</b>, enable the bridge, and select the <code>vEthernet (WSL)</code> IPv4 address.</li>
           <li>Apply the settings. The bridge starts automatically with IntelliJ while enabled.</li>
-          <li>Choose a WSL distribution and use the Codex, Claude Code, or GitHub Copilot CLI action to configure the client.</li>
+          <li>Add one route per MCP server, then use the Codex, Claude Code, or GitHub Copilot CLI action to configure all enabled routes.</li>
         </ol>
         <p>The bridge automatically rebinds after WSL interface address changes and updates configured WSL client endpoints.</p>
         <p><b>Security:</b> select only network interfaces you intend to expose. The bridge has no authentication and should not be bound to Wi-Fi, Ethernet, or VPN addresses unless required.</p>

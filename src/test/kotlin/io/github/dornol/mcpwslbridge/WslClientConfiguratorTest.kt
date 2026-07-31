@@ -56,11 +56,51 @@ class WslClientConfiguratorTest {
     }
 
     @Test
+    fun `remove commands use the expected client scopes`() {
+        val commands = mutableListOf<List<String>>()
+        val previous = WslClientConfigurator.commandRunner
+        WslClientConfigurator.commandRunner = { command ->
+            commands += command
+            if (command.lastOrNull()?.contains("getent passwd") == true) {
+                WslClientConfigurator.CommandResult(0, "/bin/sh")
+            } else {
+                WslClientConfigurator.CommandResult(0, "")
+            }
+        }
+        try {
+            WslClientConfigurator.removeCodex("Ubuntu", "server-one")
+            WslClientConfigurator.removeClaudeCode("Ubuntu", "server-two")
+            WslClientConfigurator.removeCopilotCli("Ubuntu", "server-three")
+
+            val commandText = commands.joinToString(" ") { it.joinToString(" ") }.replace("'", "")
+            assertTrue(commandText.contains("codex mcp remove server-one"))
+            assertTrue(commandText.contains("claude mcp remove --scope user server-two"))
+            assertTrue(commandText.contains("copilot mcp remove server-three"))
+        } finally {
+            WslClientConfigurator.commandRunner = previous
+        }
+    }
+
+    @Test
     fun `generic JSON contains streamable HTTP endpoint`() {
         val json = WslClientConfigurator.genericJson("http://127.0.0.1:64343/stream")
 
         assertTrue(json.contains("\"intellij-wsl-bridge\""))
         assertTrue(json.contains("http://127.0.0.1:64343/stream"))
+    }
+
+    @Test
+    fun `generic JSON contains multiple named endpoints`() {
+        val json = WslClientConfigurator.genericJson(
+            linkedMapOf(
+                "intellij" to "http://127.0.0.1:64343/mcp/intellij",
+                "intellij-index" to "http://127.0.0.1:64343/mcp/index",
+            ),
+        )
+
+        assertTrue(json.indexOf("\"intellij\"") < json.indexOf("\"intellij-index\""))
+        assertTrue(json.contains("/mcp/intellij"))
+        assertTrue(json.contains("/mcp/index"))
     }
 
     @Test

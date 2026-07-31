@@ -17,9 +17,23 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     private val servers = mutableMapOf<String, HttpServer>()
 
     fun start(address: String, port: Int, target: McpTarget) {
+        start(address, port, listOf(McpRoute("/", target, "/")))
+    }
+
+    fun start(address: String, port: Int, routes: List<McpRoute>) {
         if (servers.containsKey(address)) return
+        require(routes.isNotEmpty()) { "At least one MCP route is required." }
+        val normalizedRoutes = routes.map { route ->
+            route.copy(
+                publicPath = normalizeMcpPath(route.publicPath),
+                targetPath = normalizeMcpPath(route.targetPath),
+            )
+        }.sortedByDescending { it.publicPath.length }
+        require(normalizedRoutes.map { it.publicPath }.distinct().size == normalizedRoutes.size) {
+            "MCP public paths must be unique."
+        }
         val server = HttpServer.create(InetSocketAddress(address, port), 32)
-        server.createContext("/") { exchange -> forward(exchange, target) }
+        server.createContext("/") { exchange -> forward(exchange, normalizedRoutes) }
         server.executor = executor
         server.start()
         servers[address] = server
@@ -30,9 +44,12 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         servers.clear()
     }
 
-    private fun forward(exchange: HttpExchange, target: McpTarget) {
+    private fun forward(exchange: HttpExchange, routes: List<McpRoute>) {
         try {
-            val request = HttpRequest.newBuilder(URI("http", null, target.host, target.port, exchange.requestURI.rawPath, exchange.requestURI.rawQuery, null))
+            val route = routes.firstOrNull { matches(it.publicPath, exchange.requestURI.rawPath) }
+                ?: return sendNotFound(exchange)
+            val targetPath = rewritePath(route, exchange.requestURI.rawPath)
+            val request = HttpRequest.newBuilder(URI("http", null, route.target.host, route.target.port, targetPath, exchange.requestURI.rawQuery, null))
                 .version(HttpClient.Version.HTTP_1_1)
             exchange.requestHeaders.forEach { (name, values) ->
                 if (name.lowercase() !in REQUEST_HOP_HEADERS) values.forEach { request.header(name, it) }
@@ -48,6 +65,20 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             runCatching { exchange.sendResponseHeaders(502, -1) }
             exchange.close()
         }
+    }
+
+    private fun matches(publicPath: String, requestPath: String): Boolean =
+        publicPath == "/" || requestPath == publicPath || requestPath.startsWith("$publicPath/")
+
+    private fun rewritePath(route: McpRoute, requestPath: String): String {
+        if (route.publicPath == "/") return requestPath
+        val suffix = requestPath.removePrefix(route.publicPath)
+        return if (suffix.isEmpty()) route.targetPath else route.targetPath.trimEnd('/') + suffix
+    }
+
+    private fun sendNotFound(exchange: HttpExchange) {
+        exchange.sendResponseHeaders(404, -1)
+        exchange.close()
     }
 
     private companion object {

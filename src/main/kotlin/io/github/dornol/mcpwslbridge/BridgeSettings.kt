@@ -7,6 +7,20 @@ import com.intellij.openapi.components.Storage
 
 @State(name = "McpWslBridgeSettings", storages = [Storage("mcpWslBridge.xml")])
 class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
+    enum class ServerType { INTELLIJ_BUILT_IN, HTTP }
+
+    data class ServerProfile(
+        var id: String = "",
+        var displayName: String = "",
+        var enabled: Boolean = true,
+        var publicPath: String = "",
+        var targetHost: String = "127.0.0.1",
+        var targetPort: Int = 0,
+        var targetPath: String = "",
+        var targetMode: TargetMode = TargetMode.MANUAL,
+        var serverType: ServerType = ServerType.HTTP,
+    )
+
     data class State(
         var enabled: Boolean = false,
         var listenerPort: Int = BridgeSettings.DEFAULT_LISTENER_PORT,
@@ -21,6 +35,7 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
         var configuredCodexDistros: MutableList<String> = mutableListOf(),
         var configuredClaudeDistros: MutableList<String> = mutableListOf(),
         var configuredCopilotDistros: MutableList<String> = mutableListOf(),
+        var servers: MutableList<ServerProfile> = mutableListOf(),
     )
 
     enum class TargetMode { AUTO, MANUAL }
@@ -39,6 +54,7 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
         configuredCodexDistros = state.configuredCodexDistros.toMutableList(),
         configuredClaudeDistros = state.configuredClaudeDistros.toMutableList(),
         configuredCopilotDistros = state.configuredCopilotDistros.toMutableList(),
+        servers = state.servers.map { it.copy() }.toMutableList(),
     )
 
     fun update(newState: State) {
@@ -48,6 +64,24 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
             configuredCodexDistros = newState.configuredCodexDistros.distinct().toMutableList(),
             configuredClaudeDistros = newState.configuredClaudeDistros.distinct().toMutableList(),
             configuredCopilotDistros = newState.configuredCopilotDistros.distinct().toMutableList(),
+            servers = newState.servers.map { it.copy() }.toMutableList(),
+        )
+    }
+
+    fun serverProfiles(): List<ServerProfile> {
+        val current = snapshot()
+        if (current.servers.isNotEmpty()) return current.servers
+        return listOf(
+            ServerProfile(
+                id = "intellij",
+                displayName = "IntelliJ MCP",
+                publicPath = "/stream",
+                targetHost = current.targetHost,
+                targetPort = current.targetPort,
+                targetPath = "/stream",
+                targetMode = current.targetMode,
+                serverType = ServerType.INTELLIJ_BUILT_IN,
+            ),
         )
     }
 

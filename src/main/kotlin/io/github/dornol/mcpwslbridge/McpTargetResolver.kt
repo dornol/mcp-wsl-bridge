@@ -14,6 +14,14 @@ class McpTargetResolver(
     private val optionsPathProvider: () -> Path = { PathManager.getConfigDir().resolve("options") },
     private val portProbe: (Int) -> Boolean = ::isListening,
 ) {
+    fun resolve(profile: BridgeSettings.ServerProfile): McpTarget? {
+        if (profile.serverType != BridgeSettings.ServerType.INTELLIJ_BUILT_IN || profile.targetMode == BridgeSettings.TargetMode.MANUAL) {
+            return McpTarget(profile.targetHost, profile.targetPort, "Manual setting")
+        }
+        configuredPort()?.let { return McpTarget("127.0.0.1", it, "IntelliJ MCP settings") }
+        return findListeningPort()?.let { McpTarget("127.0.0.1", it, "Loopback port probe") }
+    }
+
     fun resolve(settings: BridgeSettings.State): McpTarget? {
         if (settings.targetMode == BridgeSettings.TargetMode.MANUAL) {
             return McpTarget(settings.targetHost, settings.targetPort, "Manual setting")

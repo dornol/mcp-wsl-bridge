@@ -8,6 +8,10 @@ An IntelliJ Platform plugin that exposes the IDE's loopback-only MCP server to W
 
 The bridge creates a fresh loopback HTTP request to the IDE, so Claude Code and Codex can connect directly from WSL without a separate WSL-side proxy process.
 
+Multiple HTTP MCP servers can be exposed through the same bridge port using
+different paths. See [Multi-MCP Routing](docs/MULTI_MCP_ROUTING.md) for the
+routing model and the IDE Index MCP Server example.
+
 The plugin detects the port saved by the built-in IntelliJ MCP Server and falls back to checking ports beginning at `64342`. A manual target override is available for unusual configurations.
 
 ## Setup
@@ -16,14 +20,15 @@ The plugin detects the port saved by the built-in IntelliJ MCP Server and falls 
 2. Open **Settings | Tools | MCP WSL Bridge**.
 3. Select the `vEthernet (WSL)` IPv4 address (the plugin marks likely WSL interfaces).
 4. Enable the bridge and apply settings. The default listener port is `64343`.
-5. In the **WSL Client Configuration** section, choose a WSL distribution and select either **Codex** or **Claude Code**. **Apply to WSL** uses the selected agent's CLI in a non-interactive login shell to create or replace the `intellij-wsl-bridge` user configuration. Progress, success, command failures, and timeouts are reported in the settings UI. The **Others** tab copies a generic streamable HTTP JSON entry.
-6. In WSL, use its default gateway as the Windows host IP:
+5. The built-in **IntelliJ MCP** route is always present and auto-detects its port. To add the IDE Index MCP route, click **Add IDE Index MCP**. Its MCP path is `/index-mcp/streamable-http`, target host is `127.0.0.1`, and port is `29170`.
+6. In the **WSL Client Configuration** section, choose a WSL distribution and select either **Codex**, **Claude Code**, or **GitHub Copilot CLI**. **Apply to WSL** registers every enabled route as a separate MCP server. The **Others** tab copies a generic multi-server streamable HTTP JSON entry.
+7. In WSL, use its default gateway as the Windows host IP:
 
    ```sh
    ip route show default | awk '{print $3}'
    ```
 
-7. Configure another client with the displayed address and the MCP endpoint appropriate for your IntelliJ version, for example `http://<gateway>:64343/stream`.
+8. Configure another client with the displayed route URLs, for example `http://<gateway>:64343/index-mcp/streamable-http`.
 
 ## Security
 
@@ -36,6 +41,7 @@ See [Privacy](PRIVACY.md) for local-data handling and [Publishing](PUBLISHING.md
 - [Automatic Startup and Status Widget](docs/STARTUP_AND_STATUS_WIDGET.md) — startup reliability, adaptive retry, service states, and status bar widget plan.
 - [IntelliJ API Compatibility and Marketplace Review](docs/PLUGIN_API_COMPATIBILITY.md) — public API policy, verifier checklist, and release review requirements.
 - [Publishing](PUBLISHING.md) — Marketplace release preparation and publishing workflow.
+- [Multi-MCP Routing](docs/MULTI_MCP_ROUTING.md) — server profiles, path routing, and client configuration.
 - [Privacy](PRIVACY.md) — local-data handling and privacy notes.
 
 ## License

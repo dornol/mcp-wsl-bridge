@@ -41,6 +41,7 @@ class McpBridgeService(
     private val statusListeners = CopyOnWriteArrayList<(Status) -> Unit>()
 
     @Volatile private var activeTarget: McpTarget? = null
+    @Volatile private var activeRoutes: List<McpRoute> = emptyList()
     @Volatile private var lastError: String? = null
     @Volatile private var boundPort: Int? = null
     @Volatile private var lastSuccessfulRefreshTime: Long? = null
@@ -63,6 +64,15 @@ class McpBridgeService(
         val state: State,
         val listenerPort: Int,
         val lastSuccessfulRefreshTime: Long?,
+        val routes: List<RouteStatus> = emptyList(),
+    )
+
+    data class RouteStatus(
+        val id: String,
+        val displayName: String,
+        val publicPath: String,
+        val target: McpTarget?,
+        val error: String? = null,
     )
 
     fun status(): Status = currentStatus ?: statusFor(settings.snapshot())
@@ -105,21 +115,33 @@ class McpBridgeService(
         if (!snapshot.enabled) {
             stopListeners()
             activeTarget = null
+            activeRoutes = emptyList()
             lastError = null
             publishStatus(snapshot)
             return
         }
 
-        val target = targetResolver.resolve(snapshot)
-        if (target == null) {
+        val profiles = settings.serverProfiles().filter { it.enabled }
+        val resolvedRoutes = profiles.mapNotNull { profile ->
+            val target = targetResolver.resolve(profile) ?: return@mapNotNull null
+            runCatching {
+                McpRoute(profile.publicPath, target, profile.targetPath)
+            }.getOrElse { error ->
+                log.warn("Invalid MCP route '${profile.id}': ${error.message}")
+                null
+            }
+        }
+        if (resolvedRoutes.isEmpty()) {
             stopListeners()
             activeTarget = null
+            activeRoutes = emptyList()
             lastError = "IntelliJ MCP server was not found. Enable it in Settings | Tools | MCP Server."
             publishStatus(snapshot)
             return
         }
 
-        activeTarget = target
+        activeRoutes = resolvedRoutes
+        activeTarget = resolvedRoutes.first().target
         val requestedAddresses = addressesProvider(snapshot).toSet()
         if (requestedAddresses.isEmpty()) {
             stopListeners()
@@ -137,11 +159,12 @@ class McpBridgeService(
             runCatching { socket.close() }
         }
         requestedAddresses.filter { !listeners.containsKey(it) }.forEach { bind(it, snapshot.listenerPort + 1) }
-        val proxyIdentity = requestedAddresses.sorted().joinToString() + "|" + snapshot.listenerPort + "|" + target.host + "|" + target.port
+        val proxyIdentity = requestedAddresses.sorted().joinToString() + "|" + snapshot.listenerPort + "|" +
+            resolvedRoutes.joinToString { "${it.publicPath}:${it.target.host}:${it.target.port}:${it.targetPath}" }
         if (listeners.isNotEmpty() && experimentalProxyIdentity != proxyIdentity) {
             experimentalHttpProxy?.stop()
             requestedAddresses.forEach { address ->
-                runCatching { experimentalHttpProxy?.start(address, snapshot.listenerPort, target) }
+                runCatching { experimentalHttpProxy?.start(address, snapshot.listenerPort, resolvedRoutes) }
                     .onFailure { log.info("Experimental HTTP reverse proxy is unavailable: ${it.message}") }
             }
             experimentalProxyIdentity = proxyIdentity
@@ -169,6 +192,11 @@ class McpBridgeService(
             state = state,
             listenerPort = snapshot.listenerPort,
             lastSuccessfulRefreshTime = lastSuccessfulRefreshTime,
+            routes = settings.serverProfiles().map { profile ->
+                val active = activeRoutes.firstOrNull { it.publicPath == profile.publicPath }
+                RouteStatus(profile.id, profile.displayName, profile.publicPath, active?.target,
+                    if (profile.enabled && active == null) "MCP target was not found" else null)
+            },
         )
     }
 
@@ -184,7 +212,11 @@ class McpBridgeService(
 
     private fun refreshConfiguredWslClients(snapshot: BridgeSettings.State) {
         val address = listeners.keys.firstOrNull() ?: return
-        val endpoint = "http://$address:${snapshot.listenerPort}/stream"
+        val configuredRoutes = activeRoutes.map { route ->
+            val profile = settings.serverProfiles().firstOrNull { it.publicPath == route.publicPath }
+            val serverName = if (profile?.id == "intellij") WslClientConfigurator.SERVER_NAME else profile?.id ?: route.publicPath.trim('/').replace('/', '-')
+            serverName to "http://$address:${snapshot.listenerPort}${route.publicPath}"
+        }
         val codexDistros = snapshot.configuredCodexDistros.toMutableSet().apply {
             if (snapshot.codexConfigured && snapshot.wslDistro.isNotBlank()) add(snapshot.wslDistro)
         }
@@ -199,20 +231,23 @@ class McpBridgeService(
             val separator = clientIdentity.indexOf('|')
             val client = clientIdentity.substring(0, separator)
             val distro = clientIdentity.substring(separator + 1)
-            if (autoConfiguredEndpoints[clientIdentity] == endpoint || !autoConfiguringClients.add(clientIdentity)) return@forEach
-            ioExecutor.submit {
-                val result = when (client) {
-                    "codex" -> WslClientConfigurator.configureCodex(distro, endpoint)
-                    "copilot" -> WslClientConfigurator.configureCopilotCli(distro, endpoint)
-                    else -> WslClientConfigurator.configureClaudeCode(distro, endpoint)
+            configuredRoutes.forEach { (serverName, endpoint) ->
+                val routeIdentity = "$clientIdentity|$serverName"
+                if (autoConfiguredEndpoints[routeIdentity] == endpoint || !autoConfiguringClients.add(routeIdentity)) return@forEach
+                ioExecutor.submit {
+                    val result = when (client) {
+                        "codex" -> WslClientConfigurator.configureCodex(distro, endpoint, serverName)
+                        "copilot" -> WslClientConfigurator.configureCopilotCli(distro, endpoint, serverName)
+                        else -> WslClientConfigurator.configureClaudeCode(distro, endpoint, serverName)
+                    }
+                    if (result.succeeded) {
+                        autoConfiguredEndpoints[routeIdentity] = endpoint
+                        log.info("Updated $client MCP endpoint '$serverName' in WSL '$distro' to $endpoint")
+                    } else {
+                        log.info("Could not update $client MCP endpoint '$serverName' in WSL '$distro': ${result.output}")
+                    }
+                    autoConfiguringClients.remove(routeIdentity)
                 }
-                if (result.succeeded) {
-                    autoConfiguredEndpoints[clientIdentity] = endpoint
-                    log.info("Updated $client MCP endpoint in WSL '$distro' to $endpoint")
-                } else {
-                    log.info("Could not update $client MCP endpoint in WSL '$distro': ${result.output}")
-                }
-                autoConfiguringClients.remove(clientIdentity)
             }
         }
     }

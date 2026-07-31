@@ -82,7 +82,8 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
             group.add(object : AnAction("Copy Endpoint") {
                 override fun actionPerformed(event: AnActionEvent) {
                     val address = status.runningAddresses.firstOrNull() ?: return
-                    val endpoint = "http://$address:${status.listenerPort}/stream"
+                    val path = status.routes.firstOrNull()?.publicPath ?: "/stream"
+                    val endpoint = "http://$address:${status.listenerPort}$path"
                     Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(endpoint), null)
                 }
             })
@@ -108,7 +109,11 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
         append(status.state.name.lowercase().replaceFirstChar { it.uppercase() })
         if (status.state == McpBridgeService.State.CONNECTED) {
             val address = status.runningAddresses.firstOrNull()
-            if (address != null) append(" — http://$address:${status.listenerPort}/stream")
+            if (address != null) {
+                val path = status.routes.firstOrNull()?.publicPath ?: "/stream"
+                append(" — http://$address:${status.listenerPort}$path")
+                if (status.routes.size > 1) append(" (+${status.routes.size - 1} MCP routes)")
+            }
         }
         if (status.error != null && status.state == McpBridgeService.State.ERROR) append(" — ${status.error}")
     }

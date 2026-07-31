@@ -38,4 +38,32 @@ class BridgeSettingsTest {
         assertEquals(emptyList(), settings.snapshot().configuredCopilotDistros)
         assertNotSame(snapshot.selectedAddresses, settings.snapshot().selectedAddresses)
     }
+
+    @Test
+    fun `server profiles are copied and legacy settings expose a default profile`() {
+        val settings = BridgeSettings().apply {
+            update(BridgeSettings.State(targetPort = 29170))
+        }
+        val profile = settings.serverProfiles().single()
+        assertEquals("intellij", profile.id)
+        assertEquals("/stream", profile.publicPath)
+        assertEquals(29170, profile.targetPort)
+
+        settings.update(
+            settings.snapshot().apply {
+                servers = mutableListOf(
+                    BridgeSettings.ServerProfile(
+                        id = "index",
+                        displayName = "IDE Index",
+                        publicPath = "/mcp/index",
+                        targetPort = 29170,
+                        targetPath = "/index-mcp/streamable-http",
+                    ),
+                )
+            },
+        )
+        val snapshot = settings.snapshot()
+        snapshot.servers[0].displayName = "changed"
+        assertEquals("IDE Index", settings.snapshot().servers[0].displayName)
+    }
 }

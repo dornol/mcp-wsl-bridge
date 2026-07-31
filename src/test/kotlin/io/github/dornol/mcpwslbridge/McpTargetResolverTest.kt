@@ -65,4 +65,37 @@ class McpTargetResolverTest {
             Files.deleteIfExists(directory)
         }
     }
+
+    @Test
+    fun `built in profile auto detects configured port while HTTP profile stays manual`() {
+        val directory = Files.createTempDirectory("mcp-profile-target")
+        try {
+            Files.writeString(
+                directory.resolve("mcpServer.xml"),
+                "<application><option name=\"port\" value=\"65433\" /></application>",
+            )
+            val resolver = McpTargetResolver(optionsPathProvider = { directory }, portProbe = { false })
+            val builtIn = resolver.resolve(
+                BridgeSettings.ServerProfile(
+                    id = "intellij",
+                    serverType = BridgeSettings.ServerType.INTELLIJ_BUILT_IN,
+                    targetMode = BridgeSettings.TargetMode.AUTO,
+                    targetPort = 1,
+                ),
+            )
+            val custom = resolver.resolve(
+                BridgeSettings.ServerProfile(
+                    id = "custom",
+                    serverType = BridgeSettings.ServerType.HTTP,
+                    targetMode = BridgeSettings.TargetMode.AUTO,
+                    targetPort = 29170,
+                ),
+            )
+            assertEquals(McpTarget("127.0.0.1", 65433, "IntelliJ MCP settings"), builtIn)
+            assertEquals(McpTarget("127.0.0.1", 29170, "Manual setting"), custom)
+        } finally {
+            Files.deleteIfExists(directory.resolve("mcpServer.xml"))
+            Files.deleteIfExists(directory)
+        }
+    }
 }

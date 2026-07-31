@@ -1,7 +1,12 @@
 package io.github.dornol.mcpwslbridge
 
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.util.Collections
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -68,6 +73,60 @@ class McpBridgeServiceTest {
             service.dispose()
             targetServer.close()
             targetExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `one HTTP listener routes multiple MCP profiles`() {
+        val executor = Executors.newCachedThreadPool()
+        val first = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 8)
+        val second = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 8)
+        first.createContext("/stream") { exchange ->
+            exchange.sendResponseHeaders(200, 5)
+            exchange.responseBody.use { it.write("one!!".toByteArray()) }
+        }
+        second.createContext("/index-mcp/streamable-http") { exchange ->
+            exchange.sendResponseHeaders(200, 6)
+            exchange.responseBody.use { it.write("two!!!".toByteArray()) }
+        }
+        first.executor = executor
+        second.executor = executor
+        first.start()
+        second.start()
+        val basePort = freeConsecutivePort()
+        val settings = BridgeSettings().apply {
+            update(
+                BridgeSettings.State(
+                    enabled = true,
+                    listenerPort = basePort,
+                    selectedAddresses = mutableListOf("127.0.0.1"),
+                    servers = mutableListOf(
+                        BridgeSettings.ServerProfile("one", "One", true, "/mcp/one", "127.0.0.1", first.address.port, "/stream"),
+                        BridgeSettings.ServerProfile("two", "Two", true, "/mcp/two", "127.0.0.1", second.address.port, "/index-mcp/streamable-http"),
+                    ),
+                ),
+            )
+        }
+        val service = McpBridgeService(
+            settingsProvider = { settings },
+            addressesProvider = { listOf("127.0.0.1") },
+        )
+        try {
+            await { service.status().state == McpBridgeService.State.CONNECTED }
+            val client = HttpClient.newHttpClient()
+            assertEquals("one!!", client.send(
+                HttpRequest.newBuilder().uri(java.net.URI("http://127.0.0.1:$basePort/mcp/one")).GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            ).body())
+            assertEquals("two!!!", client.send(
+                HttpRequest.newBuilder().uri(java.net.URI("http://127.0.0.1:$basePort/mcp/two")).GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            ).body())
+        } finally {
+            service.dispose()
+            first.stop(0)
+            second.stop(0)
+            executor.shutdownNow()
         }
     }
 
