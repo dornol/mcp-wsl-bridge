@@ -39,6 +39,11 @@ class VirtualMcpSessionStore(
         save(session)
     }
 
+    fun invalidate(session: VirtualMcpSession) {
+        session.upstreamId = null
+        save(session)
+    }
+
     private fun load() {
         if (!Files.isDirectory(directory)) return
         runCatching {

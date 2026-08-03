@@ -93,14 +93,16 @@ class ExperimentalHttpReverseProxy(
                 virtualSessions.rebind(virtualSession, upstreamSessionId)
             }
 
-            var response = sendUpstream(route, exchange, requestBytes, upstreamSessionId, exchangeId, HttpResponse.BodyHandlers.ofInputStream())
+            var response = try {
+                sendUpstream(route, exchange, requestBytes, upstreamSessionId, exchangeId, HttpResponse.BodyHandlers.ofInputStream())
+            } catch (error: Exception) {
+                if (virtualSession == null) throw error
+                log.debug("MCP[$exchangeId] upstream connection failed; reinitializing virtual session=${virtualSession.virtualId}", error)
+                reinitializeAndRetry(route, exchange, requestBytes, virtualSession, exchangeId)
+            }
             if (response.statusCode() == 404 && virtualSession != null) {
                 response.body().close()
-                log.debug("MCP[$exchangeId] upstream session expired; reinitializing virtual session=${virtualSession.virtualId}")
-                val reboundSessionId = initializeUpstream(route, exchange, virtualSession.initializeBody, exchangeId)
-                if (reboundSessionId == null) return sendBadGateway(exchange)
-                virtualSessions.rebind(virtualSession, reboundSessionId)
-                response = sendUpstream(route, exchange, requestBytes, reboundSessionId, exchangeId, HttpResponse.BodyHandlers.ofInputStream())
+                response = reinitializeAndRetry(route, exchange, requestBytes, virtualSession, exchangeId)
             }
             if (initialize && response.statusCode() == 200) {
                 val responseBytes = response.body().readAllBytes()
@@ -175,6 +177,20 @@ class ExperimentalHttpReverseProxy(
         val upstreamId = response.headers().firstValue("mcp-session-id").orElse(null)
         log.debug("MCP[$exchangeId] virtual session initialize status=${response.statusCode()} upstreamSession=${upstreamId ?: ""}")
         return if (response.statusCode() in 200..299) upstreamId else null
+    }
+
+    private fun reinitializeAndRetry(
+        route: McpRoute,
+        exchange: HttpExchange,
+        requestBytes: ByteArray,
+        virtualSession: VirtualMcpSession,
+        exchangeId: Long,
+    ): HttpResponse<InputStream> {
+        virtualSessions.invalidate(virtualSession)
+        val reboundSessionId = initializeUpstream(route, exchange, virtualSession.initializeBody, exchangeId)
+            ?: throw java.io.IOException("IntelliJ MCP session could not be reinitialized")
+        virtualSessions.rebind(virtualSession, reboundSessionId)
+        return sendUpstream(route, exchange, requestBytes, reboundSessionId, exchangeId, HttpResponse.BodyHandlers.ofInputStream())
     }
 
     private fun sendBufferedResponse(
