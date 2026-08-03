@@ -23,7 +23,6 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         .connectTimeout(Duration.ofSeconds(3)).build()
     private val servers = mutableMapOf<String, HttpServer>()
     private val activeSessions = ConcurrentHashMap.newKeySet<String>()
-    private val invalidatedSessions = ConcurrentHashMap.newKeySet<String>()
     private val activeExchanges = ConcurrentHashMap.newKeySet<HttpExchange>()
 
     fun start(address: String, port: Int, target: McpTarget) {
@@ -50,7 +49,6 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     }
 
     fun stop() {
-        invalidatedSessions.addAll(activeSessions)
         activeSessions.clear()
         activeExchanges.forEach { exchange -> runCatching { exchange.close() } }
         activeExchanges.clear()
@@ -66,8 +64,8 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             val route = routes.firstOrNull { matches(it.publicPath, exchange.requestURI.rawPath) }
                 ?: return sendNotFound(exchange)
             val sessionId = exchange.requestHeaders.getFirst("Mcp-Session-Id")
-            if (sessionId != null && (invalidatedSessions.contains(sessionId) || !activeSessions.contains(sessionId))) {
-                log.debug("MCP[$exchangeId] rejecting unknown or invalidated session=$sessionId")
+            if (sessionId != null && !activeSessions.contains(sessionId)) {
+                log.debug("MCP[$exchangeId] rejecting unknown session=$sessionId")
                 return sendSessionExpired(exchange)
             }
             val targetPath = rewritePath(route, exchange.requestURI.rawPath)
