@@ -8,22 +8,31 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.http.HttpClient
+import java.net.http.HttpHeaders
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.Executor
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /** Experimental HTTP/1.1 reverse proxy used to validate direct Claude Code access from WSL. */
-class ExperimentalHttpReverseProxy(private val executor: Executor) {
+class ExperimentalHttpReverseProxy(
+    private val executor: Executor,
+    sessionDirectory: Path,
+) {
+    constructor(executor: Executor) : this(
+        executor,
+        com.intellij.openapi.application.PathManager.getConfigDir().resolve("mcp-wsl-bridge/sessions"),
+    )
     private val log = Logger.getInstance(ExperimentalHttpReverseProxy::class.java)
     private val exchangeSequence = AtomicLong()
     private val client = HttpClient.newBuilder().executor(executor).version(HttpClient.Version.HTTP_1_1)
         .connectTimeout(Duration.ofSeconds(3)).build()
     private val servers = mutableMapOf<String, HttpServer>()
-    private val activeSessions = ConcurrentHashMap.newKeySet<String>()
     private val activeExchanges = ConcurrentHashMap.newKeySet<HttpExchange>()
+    private val virtualSessions = VirtualMcpSessionStore(sessionDirectory)
 
     fun start(address: String, port: Int, target: McpTarget) {
         start(address, port, listOf(McpRoute("/", target, "/")))
@@ -49,7 +58,6 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     }
 
     fun stop() {
-        activeSessions.clear()
         activeExchanges.forEach { exchange -> runCatching { exchange.close() } }
         activeExchanges.clear()
         servers.values.forEach { it.stop(0) }
@@ -64,43 +72,57 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             val route = routes.firstOrNull { matches(it.publicPath, exchange.requestURI.rawPath) }
                 ?: return sendNotFound(exchange)
             val sessionId = exchange.requestHeaders.getFirst("Mcp-Session-Id")
-            if (sessionId != null && !activeSessions.contains(sessionId)) {
-                log.debug("MCP[$exchangeId] rejecting unknown session=$sessionId")
-                return sendSessionExpired(exchange)
-            }
-            val targetPath = rewritePath(route, exchange.requestURI.rawPath)
-            val targetOrigin = "http://${route.target.host}:${route.target.port}"
             log.debug(
                 "MCP[$exchangeId] inbound ${exchange.requestMethod} ${exchange.requestURI.rawPath} " +
                     "remote=${exchange.remoteAddress.address.hostAddress} " +
-                    "${mcpHeaderSummary(exchange)} target=${route.target.host}:${route.target.port}$targetPath",
+                    "${mcpHeaderSummary(exchange)} target=${route.target.host}:${route.target.port}",
             )
-            val request = HttpRequest.newBuilder(URI("http", null, route.target.host, route.target.port, targetPath, exchange.requestURI.rawQuery, null))
-                .version(HttpClient.Version.HTTP_1_1)
-            exchange.requestHeaders.forEach { (name, values) ->
-                if (name.lowercase() !in REQUEST_HOP_HEADERS) values.forEach { request.header(name, it) }
-            }
-            // IntelliJ's MCP server validates local HTTP origins. The WSL client origin
-            // identifies the bridge/gateway, so replace it with the loopback origin that
-            // IntelliJ sees when a client connects directly on Windows. This is also
-            // important for server-side approval flows, which are policy-checked before
-            // the tool is executed.
-            request.header("Origin", targetOrigin)
             val requestBytes = if (exchange.requestMethod in BODY_METHODS) exchange.requestBody.readBytes() else ByteArray(0)
             if (requestBytes.isNotEmpty()) logRequestSummary(exchangeId, requestBytes)
-            val body = if (requestBytes.isNotEmpty()) HttpRequest.BodyPublishers.ofByteArray(requestBytes) else HttpRequest.BodyPublishers.noBody()
-            val response = client.send(request.method(exchange.requestMethod, body).build(), HttpResponse.BodyHandlers.ofInputStream())
+            val initialize = requestBytes.isNotEmpty() && JSON_INITIALIZE.containsMatchIn(String(requestBytes, Charsets.UTF_8))
+            val virtualSession = sessionId?.let { virtualSessions.find(it) }
+            if (sessionId != null && virtualSession == null) {
+                log.debug("MCP[$exchangeId] rejecting unknown virtual session=$sessionId")
+                return sendSessionExpired(exchange)
+            }
+
+            var upstreamSessionId = virtualSession?.upstreamId
+            if (virtualSession != null && upstreamSessionId == null) {
+                upstreamSessionId = initializeUpstream(route, exchange, virtualSession.initializeBody, exchangeId)
+                if (upstreamSessionId == null) return sendBadGateway(exchange)
+                virtualSessions.rebind(virtualSession, upstreamSessionId)
+            }
+
+            var response = sendUpstream(route, exchange, requestBytes, upstreamSessionId, exchangeId, HttpResponse.BodyHandlers.ofInputStream())
+            if (response.statusCode() == 404 && virtualSession != null) {
+                response.body().close()
+                log.debug("MCP[$exchangeId] upstream session expired; reinitializing virtual session=${virtualSession.virtualId}")
+                val reboundSessionId = initializeUpstream(route, exchange, virtualSession.initializeBody, exchangeId)
+                if (reboundSessionId == null) return sendBadGateway(exchange)
+                virtualSessions.rebind(virtualSession, reboundSessionId)
+                response = sendUpstream(route, exchange, requestBytes, reboundSessionId, exchangeId, HttpResponse.BodyHandlers.ofInputStream())
+            }
+            if (initialize && response.statusCode() == 200) {
+                val responseBytes = response.body().readAllBytes()
+                response.body().close()
+                val upstreamId = response.headers().firstValue("mcp-session-id").orElse(null)
+                if (upstreamId != null) {
+                    val created = virtualSessions.create(requestBytes, upstreamId)
+                    return sendBufferedResponse(exchange, response.statusCode(), response.headers(), responseBytes, created.virtualId)
+                }
+                return sendBufferedResponse(exchange, response.statusCode(), response.headers(), responseBytes, null)
+            }
             log.debug(
                 "MCP[$exchangeId] upstream response status=${response.statusCode()} " +
                     "contentType=${response.headers().firstValue("content-type").orElse("")} " +
                     "session=${response.headers().firstValue("mcp-session-id").orElse("")}",
             )
-            response.headers().firstValue("mcp-session-id").ifPresent(activeSessions::add)
             response.headers().map().forEach { (name, values) ->
-                if (name.lowercase() !in RESPONSE_HOP_HEADERS && name.lowercase() != "content-length") {
+                if (name.lowercase() !in RESPONSE_HOP_HEADERS && name.lowercase() != "content-length" && name.lowercase() != "mcp-session-id") {
                     exchange.responseHeaders.put(name, values)
                 }
             }
+            virtualSession?.let { exchange.responseHeaders.set("Mcp-Session-Id", it.virtualId) }
             // Do not reuse the upstream Content-Length. MCP responses may be SSE streams
             // and the JDK HttpServer must frame the downstream response itself. Keeping the
             // upstream length can truncate or stall a response when the server emits an
@@ -120,6 +142,61 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         } finally {
             activeExchanges.remove(exchange)
         }
+    }
+
+    private fun <T> sendUpstream(
+        route: McpRoute,
+        exchange: HttpExchange,
+        requestBytes: ByteArray,
+        upstreamSessionId: String?,
+        exchangeId: Long,
+        bodyHandler: HttpResponse.BodyHandler<T>,
+        requestMethod: String = exchange.requestMethod,
+        initializeRequest: Boolean = false,
+    ): HttpResponse<T> {
+        val targetPath = rewritePath(route, exchange.requestURI.rawPath)
+        val request = HttpRequest.newBuilder(URI("http", null, route.target.host, route.target.port, targetPath, exchange.requestURI.rawQuery, null))
+            .version(HttpClient.Version.HTTP_1_1)
+        exchange.requestHeaders.forEach { (name, values) ->
+            if (name.lowercase() !in REQUEST_HOP_HEADERS && name.lowercase() != "mcp-session-id") values.forEach { request.header(name, it) }
+        }
+        if (upstreamSessionId != null) request.header("Mcp-Session-Id", upstreamSessionId)
+        request.header("Origin", "http://${route.target.host}:${route.target.port}")
+        if (initializeRequest) {
+            request.setHeader("Accept", "application/json, text/event-stream")
+            request.setHeader("Content-Type", "application/json")
+        }
+        val body = if (requestBytes.isNotEmpty()) HttpRequest.BodyPublishers.ofByteArray(requestBytes) else HttpRequest.BodyPublishers.noBody()
+        return client.send(request.method(requestMethod, body).build(), bodyHandler)
+    }
+
+    private fun initializeUpstream(route: McpRoute, exchange: HttpExchange, body: ByteArray, exchangeId: Long): String? {
+        val response = sendUpstream(route, exchange, body, null, exchangeId, HttpResponse.BodyHandlers.ofByteArray(), "POST", true)
+        val upstreamId = response.headers().firstValue("mcp-session-id").orElse(null)
+        log.debug("MCP[$exchangeId] virtual session initialize status=${response.statusCode()} upstreamSession=${upstreamId ?: ""}")
+        return if (response.statusCode() in 200..299) upstreamId else null
+    }
+
+    private fun sendBufferedResponse(
+        exchange: HttpExchange,
+        statusCode: Int,
+        headers: HttpHeaders,
+        body: ByteArray,
+        virtualSessionId: String?,
+    ) {
+        headers.map().forEach { (name, values) ->
+            if (name.lowercase() !in RESPONSE_HOP_HEADERS && name.lowercase() != "content-length" && name.lowercase() != "mcp-session-id") {
+                exchange.responseHeaders.put(name, values)
+            }
+        }
+        if (virtualSessionId != null) exchange.responseHeaders.set("Mcp-Session-Id", virtualSessionId)
+        exchange.sendResponseHeaders(statusCode, body.size.toLong())
+        exchange.responseBody.use { it.write(body) }
+    }
+
+    private fun sendBadGateway(exchange: HttpExchange) {
+        runCatching { exchange.sendResponseHeaders(502, -1) }
+        exchange.close()
     }
 
     private fun copyResponse(exchangeId: Long, statusCode: Int, contentType: String, input: InputStream, output: OutputStream) {
@@ -217,6 +294,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         val RESPONSE_HOP_HEADERS = setOf("connection", "keep-alive", "content-length", "transfer-encoding", "upgrade")
         const val MAX_LOG_BUFFER = 256 * 1024
         val JSON_METHOD = Regex("\\\"method\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+        val JSON_INITIALIZE = Regex("\\\"method\\\"\\s*:\\s*\\\"initialize\\\"")
         val JSON_ID = Regex("\\\"id\\\"\\s*:\\s*(\\\"[^\\\"]*\\\"|-?\\d+)")
         val JSON_TOOL_NAME = Regex("\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
         val JSON_ERROR_MESSAGE = Regex("\\\"errorMessage\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
