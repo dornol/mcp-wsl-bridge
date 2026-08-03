@@ -24,6 +24,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     private val servers = mutableMapOf<String, HttpServer>()
     private val activeSessions = ConcurrentHashMap.newKeySet<String>()
     private val invalidatedSessions = ConcurrentHashMap.newKeySet<String>()
+    private val activeExchanges = ConcurrentHashMap.newKeySet<HttpExchange>()
 
     fun start(address: String, port: Int, target: McpTarget) {
         start(address, port, listOf(McpRoute("/", target, "/")))
@@ -51,6 +52,8 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     fun stop() {
         invalidatedSessions.addAll(activeSessions)
         activeSessions.clear()
+        activeExchanges.forEach { exchange -> runCatching { exchange.close() } }
+        activeExchanges.clear()
         servers.values.forEach { it.stop(0) }
         servers.clear()
     }
@@ -58,6 +61,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     private fun forward(exchange: HttpExchange, routes: List<McpRoute>) {
         val exchangeId = exchangeSequence.incrementAndGet()
         val startedAt = System.nanoTime()
+        activeExchanges.add(exchange)
         try {
             val route = routes.firstOrNull { matches(it.publicPath, exchange.requestURI.rawPath) }
                 ?: return sendNotFound(exchange)
@@ -115,6 +119,8 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             log.warn("MCP[$exchangeId] failed after ${elapsedMillis(startedAt)}ms: ${error.message}", error)
             runCatching { exchange.sendResponseHeaders(502, -1) }
             exchange.close()
+        } finally {
+            activeExchanges.remove(exchange)
         }
     }
 
@@ -201,6 +207,8 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     }
 
     private fun sendSessionExpired(exchange: HttpExchange) {
+        exchange.responseHeaders.add("Connection", "close")
+        exchange.responseHeaders.add("Cache-Control", "no-store")
         exchange.sendResponseHeaders(404, -1)
         exchange.close()
     }
