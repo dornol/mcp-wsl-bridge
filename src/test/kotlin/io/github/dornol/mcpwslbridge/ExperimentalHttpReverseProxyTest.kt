@@ -7,6 +7,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.concurrent.Executors
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -68,6 +69,83 @@ class ExperimentalHttpReverseProxyTest {
             assertEquals(502, response.statusCode())
         } finally {
             proxy.stop()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `proxy preserves streamable HTTP approval exchange and session headers`() {
+        val executor = Executors.newCachedThreadPool()
+        val target = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 16)
+        val receivedSessions = CopyOnWriteArrayList<String>()
+        val receivedOrigins = CopyOnWriteArrayList<String>()
+        val receivedBodies = CopyOnWriteArrayList<String>()
+        target.createContext("/stream") { exchange ->
+            receivedSessions += exchange.requestHeaders.getFirst("Mcp-Session-Id").orEmpty()
+            receivedOrigins += exchange.requestHeaders.getFirst("Origin").orEmpty()
+            val body = exchange.requestBody.bufferedReader().readText()
+            receivedBodies += body
+            if (body.contains("tools/call")) {
+                val response = """
+                    event: message
+                    data: {"jsonrpc":"2.0","id":99,"method":"elicitation/create","params":{"message":"Allow query?"}}
+
+                    event: message
+                    data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}
+
+                """.trimIndent() + "\n"
+                exchange.responseHeaders.add("Content-Type", "text/event-stream")
+                exchange.responseHeaders.add("Mcp-Session-Id", "session-1")
+                exchange.sendResponseHeaders(200, 0)
+                exchange.responseBody.use { it.write(response.toByteArray()) }
+            } else {
+                exchange.sendResponseHeaders(202, -1)
+                exchange.close()
+            }
+        }
+        target.executor = executor
+        target.start()
+
+        val proxy = ExperimentalHttpReverseProxy(executor)
+        val proxyPort = freePort()
+        try {
+            proxy.start("127.0.0.1", proxyPort, McpTarget("127.0.0.1", target.address.port, "test"))
+            val response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder()
+                    .uri(java.net.URI("http://127.0.0.1:$proxyPort/stream"))
+                    .header("Origin", "http://wsl-gateway:64343")
+                    .header("Mcp-Session-Id", "session-1")
+                    .header("Accept", "application/json, text/event-stream")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"method\":\"tools/call\"}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+
+            assertEquals(200, response.statusCode())
+            assertTrue(response.body().contains("elicitation/create"), response.body())
+            assertTrue(response.body().contains("\"result\""), response.body())
+            assertEquals(listOf("session-1"), receivedSessions)
+            assertEquals(listOf("http://127.0.0.1:${target.address.port}"), receivedOrigins)
+            assertEquals("session-1", response.headers().firstValue("Mcp-Session-Id").orElse(null))
+
+            val approvalResponse = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder()
+                    .uri(java.net.URI("http://127.0.0.1:$proxyPort/stream"))
+                    .header("Origin", "http://wsl-gateway:64343")
+                    .header("Mcp-Session-Id", "session-1")
+                    .header("Accept", "application/json, text/event-stream")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{\"action\":\"accept\"}}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            assertEquals(202, approvalResponse.statusCode())
+            assertEquals(2, receivedBodies.size)
+            assertTrue(receivedBodies[1].contains("accept"), receivedBodies[1])
+            assertEquals(listOf("session-1", "session-1"), receivedSessions)
+            assertEquals(listOf("http://127.0.0.1:${target.address.port}", "http://127.0.0.1:${target.address.port}"), receivedOrigins)
+        } finally {
+            proxy.stop()
+            target.stop(0)
             executor.shutdownNow()
         }
     }

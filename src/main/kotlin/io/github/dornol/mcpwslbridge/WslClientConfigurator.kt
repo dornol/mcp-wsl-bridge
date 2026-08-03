@@ -195,8 +195,14 @@ object WslClientConfigurator {
             response.end();
             return;
           }
-          const headers = { ...request.headers, host: `127.0.0.1:${'$'}{targetPort}` };
-          delete headers.origin;
+          // Match the origin used by a client running directly beside IntelliJ. Keep
+          // MCP session and SSE headers untouched so approval requests can travel back
+          // through the same Streamable HTTP session.
+          const headers = {
+            ...request.headers,
+            host: `127.0.0.1:${'$'}{targetPort}`,
+            origin: target.origin,
+          };
           const upstream = http.request({
             hostname,
             port: targetPort,
