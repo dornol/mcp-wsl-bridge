@@ -62,11 +62,10 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             val route = routes.firstOrNull { matches(it.publicPath, exchange.requestURI.rawPath) }
                 ?: return sendNotFound(exchange)
             val sessionId = exchange.requestHeaders.getFirst("Mcp-Session-Id")
-            if (sessionId != null && invalidatedSessions.contains(sessionId)) {
-                log.debug("MCP[$exchangeId] rejecting invalidated session=$sessionId")
+            if (sessionId != null && (invalidatedSessions.contains(sessionId) || !activeSessions.contains(sessionId))) {
+                log.debug("MCP[$exchangeId] rejecting unknown or invalidated session=$sessionId")
                 return sendSessionExpired(exchange)
             }
-            sessionId?.let(activeSessions::add)
             val targetPath = rewritePath(route, exchange.requestURI.rawPath)
             val targetOrigin = "http://${route.target.host}:${route.target.port}"
             log.debug(

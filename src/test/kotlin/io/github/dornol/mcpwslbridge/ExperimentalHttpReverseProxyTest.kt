@@ -78,6 +78,7 @@ class ExperimentalHttpReverseProxyTest {
         val executor = Executors.newCachedThreadPool()
         val target = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 16)
         target.createContext("/") { exchange ->
+            exchange.responseHeaders.add("Mcp-Session-Id", "old-session")
             exchange.sendResponseHeaders(200, 0)
             exchange.responseBody.close()
         }
@@ -95,7 +96,6 @@ class ExperimentalHttpReverseProxyTest {
                 client.send(
                     HttpRequest.newBuilder()
                         .uri(java.net.URI("http://127.0.0.1:$proxyPort/stream"))
-                        .header("Mcp-Session-Id", "old-session")
                         .GET()
                         .build(),
                     HttpResponse.BodyHandlers.ofString(),
@@ -164,7 +164,6 @@ class ExperimentalHttpReverseProxyTest {
                 HttpRequest.newBuilder()
                     .uri(java.net.URI("http://127.0.0.1:$proxyPort/stream"))
                     .header("Origin", "http://wsl-gateway:64343")
-                    .header("Mcp-Session-Id", "session-1")
                     .header("Accept", "application/json, text/event-stream")
                     .POST(HttpRequest.BodyPublishers.ofString("{\"method\":\"tools/call\"}"))
                     .build(),
@@ -174,7 +173,7 @@ class ExperimentalHttpReverseProxyTest {
             assertEquals(200, response.statusCode())
             assertTrue(response.body().contains("elicitation/create"), response.body())
             assertTrue(response.body().contains("\"result\""), response.body())
-            assertEquals(listOf("session-1"), receivedSessions)
+            assertEquals(listOf(""), receivedSessions)
             assertEquals(listOf("http://127.0.0.1:${target.address.port}"), receivedOrigins)
             assertEquals("session-1", response.headers().firstValue("Mcp-Session-Id").orElse(null))
 
@@ -191,7 +190,7 @@ class ExperimentalHttpReverseProxyTest {
             assertEquals(202, approvalResponse.statusCode())
             assertEquals(2, receivedBodies.size)
             assertTrue(receivedBodies[1].contains("accept"), receivedBodies[1])
-            assertEquals(listOf("session-1", "session-1"), receivedSessions)
+            assertEquals(listOf("", "session-1"), receivedSessions)
             assertEquals(listOf("http://127.0.0.1:${target.address.port}", "http://127.0.0.1:${target.address.port}"), receivedOrigins)
         } finally {
             proxy.stop()
