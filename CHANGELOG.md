@@ -6,6 +6,7 @@
 - Preserve MCP session and SSE approval exchanges through the WSL bridge.
 - Add safe IntelliJ bridge diagnostics for request headers, sessions, responses, SSE messages, and timings.
 - Add regression coverage for server-initiated approval requests and approval responses.
+- Detect IntelliJ MCP restarts from the configured port and recycle the bridge endpoint for new client sessions.
 
 ## 0.1.9 - 2026-07-31
 

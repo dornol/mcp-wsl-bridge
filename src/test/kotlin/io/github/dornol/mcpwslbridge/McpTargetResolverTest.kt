@@ -29,7 +29,8 @@ class McpTargetResolverTest {
                 """.trimIndent(),
             )
 
-            val target = McpTargetResolver(optionsPathProvider = { directory }).resolve(BridgeSettings.State())
+            val target = McpTargetResolver(optionsPathProvider = { directory }, portProbe = { it == 65432 })
+                .resolve(BridgeSettings.State())
 
             assertEquals(McpTarget("127.0.0.1", 65432, "IntelliJ MCP settings"), target)
         } finally {
@@ -44,6 +45,23 @@ class McpTargetResolverTest {
         try {
             assertNull(McpTargetResolver({ directory }, portProbe = { false }).resolve(BridgeSettings.State()))
         } finally {
+            Files.deleteIfExists(directory)
+        }
+    }
+
+    @Test
+    fun `configured port is ignored while IntelliJ MCP is not listening`() {
+        val directory = Files.createTempDirectory("mcp-target-stopped")
+        try {
+            Files.writeString(
+                directory.resolve("mcpServer.xml"),
+                "<application><option name=\"port\" value=\"65432\" /></application>",
+            )
+
+            assertNull(McpTargetResolver(optionsPathProvider = { directory }, portProbe = { false })
+                .resolve(BridgeSettings.State()))
+        } finally {
+            Files.deleteIfExists(directory.resolve("mcpServer.xml"))
             Files.deleteIfExists(directory)
         }
     }
@@ -74,7 +92,7 @@ class McpTargetResolverTest {
                 directory.resolve("mcpServer.xml"),
                 "<application><option name=\"port\" value=\"65433\" /></application>",
             )
-            val resolver = McpTargetResolver(optionsPathProvider = { directory }, portProbe = { false })
+            val resolver = McpTargetResolver(optionsPathProvider = { directory }, portProbe = { it == 65433 })
             val builtIn = resolver.resolve(
                 BridgeSettings.ServerProfile(
                     id = "intellij",

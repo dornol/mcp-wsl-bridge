@@ -58,6 +58,7 @@ intellijPlatform {
               <li>Preserve MCP session and SSE approval exchanges through the WSL bridge.</li>
               <li>Add safe diagnostics for MCP request, response, SSE, and timing events.</li>
               <li>Add regression coverage for server-initiated approval requests and responses.</li>
+              <li>Recycle the bridge endpoint when IntelliJ MCP restarts so clients can establish fresh sessions.</li>
             </ul>
             <h2>0.1.9</h2>
             <ul>

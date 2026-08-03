@@ -18,7 +18,7 @@ class McpTargetResolver(
         if (profile.serverType != BridgeSettings.ServerType.INTELLIJ_BUILT_IN || profile.targetMode == BridgeSettings.TargetMode.MANUAL) {
             return McpTarget(profile.targetHost, profile.targetPort, "Manual setting")
         }
-        configuredPort()?.let { return McpTarget("127.0.0.1", it, "IntelliJ MCP settings") }
+        configuredPort()?.takeIf(portProbe)?.let { return McpTarget("127.0.0.1", it, "IntelliJ MCP settings") }
         return findListeningPort()?.let { McpTarget("127.0.0.1", it, "Loopback port probe") }
     }
 
@@ -27,7 +27,7 @@ class McpTargetResolver(
             return McpTarget(settings.targetHost, settings.targetPort, "Manual setting")
         }
 
-        configuredPort()?.let { return McpTarget("127.0.0.1", it, "IntelliJ MCP settings") }
+        configuredPort()?.takeIf(portProbe)?.let { return McpTarget("127.0.0.1", it, "IntelliJ MCP settings") }
         return findListeningPort()?.let { McpTarget("127.0.0.1", it, "Loopback port probe") }
     }
 
