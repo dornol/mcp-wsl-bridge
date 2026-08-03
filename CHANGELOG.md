@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.10 - 2026-08-03
+
+- Preserve loopback Origin and Streamable HTTP response framing for IntelliJ MCP approval flows.
+- Preserve MCP session and SSE approval exchanges through the WSL bridge.
+- Add safe IntelliJ bridge diagnostics for request headers, sessions, responses, SSE messages, and timings.
+- Add regression coverage for server-initiated approval requests and approval responses.
+
 ## 0.1.9 - 2026-07-31
 
 - Add multi-server MCP routing, including the IDE Index MCP preset.

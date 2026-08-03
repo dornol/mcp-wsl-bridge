@@ -58,7 +58,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
                 ?: return sendNotFound(exchange)
             val targetPath = rewritePath(route, exchange.requestURI.rawPath)
             val targetOrigin = "http://${route.target.host}:${route.target.port}"
-            log.info(
+            log.debug(
                 "MCP[$exchangeId] inbound ${exchange.requestMethod} ${exchange.requestURI.rawPath} " +
                     "remote=${exchange.remoteAddress.address.hostAddress} " +
                     "${mcpHeaderSummary(exchange)} target=${route.target.host}:${route.target.port}$targetPath",
@@ -76,7 +76,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             request.header("Origin", targetOrigin)
             val body = if (exchange.requestMethod in BODY_METHODS) HttpRequest.BodyPublishers.ofInputStream { exchange.requestBody } else HttpRequest.BodyPublishers.noBody()
             val response = client.send(request.method(exchange.requestMethod, body).build(), HttpResponse.BodyHandlers.ofInputStream())
-            log.info(
+            log.debug(
                 "MCP[$exchangeId] upstream response status=${response.statusCode()} " +
                     "contentType=${response.headers().firstValue("content-type").orElse("")} " +
                     "session=${response.headers().firstValue("mcp-session-id").orElse("")}",
@@ -92,7 +92,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             // approval request before the final JSON-RPC response.
             exchange.sendResponseHeaders(response.statusCode(), 0)
             response.body().use { input -> exchange.responseBody.use { output -> copyResponse(exchangeId, input, output) } }
-            log.info("MCP[$exchangeId] completed in ${elapsedMillis(startedAt)}ms")
+            log.debug("MCP[$exchangeId] completed in ${elapsedMillis(startedAt)}ms")
         } catch (error: Exception) {
             log.warn("MCP[$exchangeId] failed after ${elapsedMillis(startedAt)}ms: ${error.message}", error)
             runCatching { exchange.sendResponseHeaders(502, -1) }
@@ -128,7 +128,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             if (data.isBlank()) continue
             val method = JSON_METHOD.find(data)?.groupValues?.get(1)
             val id = JSON_ID.find(data)?.groupValues?.get(1)
-            log.info("MCP[$exchangeId] SSE message method=${method ?: "response/notification"} id=${id ?: "-"}")
+            log.debug("MCP[$exchangeId] SSE message method=${method ?: "response/notification"} id=${id ?: "-"}")
         }
     }
 
