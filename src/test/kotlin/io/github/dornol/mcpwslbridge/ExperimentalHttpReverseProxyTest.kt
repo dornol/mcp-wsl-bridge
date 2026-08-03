@@ -74,6 +74,56 @@ class ExperimentalHttpReverseProxyTest {
     }
 
     @Test
+    fun `proxy expires sessions after restart`() {
+        val executor = Executors.newCachedThreadPool()
+        val target = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 16)
+        target.createContext("/") { exchange ->
+            exchange.sendResponseHeaders(200, 0)
+            exchange.responseBody.close()
+        }
+        target.executor = executor
+        target.start()
+
+        val proxy = ExperimentalHttpReverseProxy(executor)
+        val proxyPort = freePort()
+        val client = HttpClient.newHttpClient()
+        try {
+            val targetConfig = McpTarget("127.0.0.1", target.address.port, "test")
+            proxy.start("127.0.0.1", proxyPort, targetConfig)
+            assertEquals(
+                200,
+                client.send(
+                    HttpRequest.newBuilder()
+                        .uri(java.net.URI("http://127.0.0.1:$proxyPort/stream"))
+                        .header("Mcp-Session-Id", "old-session")
+                        .GET()
+                        .build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                ).statusCode(),
+            )
+
+            proxy.stop()
+            proxy.start("127.0.0.1", proxyPort, targetConfig)
+
+            assertEquals(
+                404,
+                client.send(
+                    HttpRequest.newBuilder()
+                        .uri(java.net.URI("http://127.0.0.1:$proxyPort/stream"))
+                        .header("Mcp-Session-Id", "old-session")
+                        .GET()
+                        .build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                ).statusCode(),
+            )
+        } finally {
+            proxy.stop()
+            target.stop(0)
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun `proxy preserves streamable HTTP approval exchange and session headers`() {
         val executor = Executors.newCachedThreadPool()
         val target = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 16)

@@ -12,6 +12,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.Executor
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /** Experimental HTTP/1.1 reverse proxy used to validate direct Claude Code access from WSL. */
@@ -21,6 +22,8 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     private val client = HttpClient.newBuilder().executor(executor).version(HttpClient.Version.HTTP_1_1)
         .connectTimeout(Duration.ofSeconds(3)).build()
     private val servers = mutableMapOf<String, HttpServer>()
+    private val activeSessions = ConcurrentHashMap.newKeySet<String>()
+    private val invalidatedSessions = ConcurrentHashMap.newKeySet<String>()
 
     fun start(address: String, port: Int, target: McpTarget) {
         start(address, port, listOf(McpRoute("/", target, "/")))
@@ -46,6 +49,8 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
     }
 
     fun stop() {
+        invalidatedSessions.addAll(activeSessions)
+        activeSessions.clear()
         servers.values.forEach { it.stop(0) }
         servers.clear()
     }
@@ -56,6 +61,12 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         try {
             val route = routes.firstOrNull { matches(it.publicPath, exchange.requestURI.rawPath) }
                 ?: return sendNotFound(exchange)
+            val sessionId = exchange.requestHeaders.getFirst("Mcp-Session-Id")
+            if (sessionId != null && invalidatedSessions.contains(sessionId)) {
+                log.debug("MCP[$exchangeId] rejecting invalidated session=$sessionId")
+                return sendSessionExpired(exchange)
+            }
+            sessionId?.let(activeSessions::add)
             val targetPath = rewritePath(route, exchange.requestURI.rawPath)
             val targetOrigin = "http://${route.target.host}:${route.target.port}"
             log.debug(
@@ -81,6 +92,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
                     "contentType=${response.headers().firstValue("content-type").orElse("")} " +
                     "session=${response.headers().firstValue("mcp-session-id").orElse("")}",
             )
+            response.headers().firstValue("mcp-session-id").ifPresent(activeSessions::add)
             response.headers().map().forEach { (name, values) ->
                 if (name.lowercase() !in RESPONSE_HOP_HEADERS && name.lowercase() != "content-length") {
                     exchange.responseHeaders.put(name, values)
@@ -91,7 +103,12 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             // upstream length can truncate or stall a response when the server emits an
             // approval request before the final JSON-RPC response.
             exchange.sendResponseHeaders(response.statusCode(), 0)
-            response.body().use { input -> exchange.responseBody.use { output -> copyResponse(exchangeId, input, output) } }
+            val contentType = response.headers().firstValue("content-type").orElse("")
+            response.body().use { input ->
+                exchange.responseBody.use { output ->
+                    copyResponse(exchangeId, response.statusCode(), contentType, input, output)
+                }
+            }
             log.debug("MCP[$exchangeId] completed in ${elapsedMillis(startedAt)}ms")
         } catch (error: Exception) {
             log.warn("MCP[$exchangeId] failed after ${elapsedMillis(startedAt)}ms: ${error.message}", error)
@@ -100,19 +117,35 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         }
     }
 
-    private fun copyResponse(exchangeId: Long, input: InputStream, output: OutputStream) {
+    private fun copyResponse(exchangeId: Long, statusCode: Int, contentType: String, input: InputStream, output: OutputStream) {
         val buffer = ByteArray(8192)
         val sseLine = StringBuilder()
+        val jsonBody = StringBuilder()
         while (true) {
             val count = input.read(buffer)
             if (count < 0) break
             if (count == 0) continue
             output.write(buffer, 0, count)
             output.flush()
+            if (contentType.contains("application/json", ignoreCase = true) && jsonBody.length < MAX_LOG_BUFFER) {
+                jsonBody.append(String(buffer, 0, minOf(count, MAX_LOG_BUFFER - jsonBody.length), Charsets.UTF_8))
+            }
             if (sseLine.length < MAX_LOG_BUFFER) {
                 sseLine.append(String(buffer, 0, count, Charsets.UTF_8))
                 logSseMessages(exchangeId, sseLine)
             }
+        }
+        if (jsonBody.isNotEmpty()) logJsonSummary(exchangeId, statusCode, jsonBody.toString())
+    }
+
+    private fun logJsonSummary(exchangeId: Long, statusCode: Int, body: String) {
+        val errors = listOf(JSON_ERROR_MESSAGE, JSON_RPC_ERROR_MESSAGE)
+            .mapNotNull { it.find(body)?.groupValues?.get(1) }
+            .distinct()
+        if (errors.isNotEmpty()) {
+            log.debug("MCP[$exchangeId] JSON response status=$statusCode errors=${errors.joinToString(" | ")}")
+        } else {
+            log.debug("MCP[$exchangeId] JSON response status=$statusCode without error fields")
         }
     }
 
@@ -158,6 +191,11 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         exchange.close()
     }
 
+    private fun sendSessionExpired(exchange: HttpExchange) {
+        exchange.sendResponseHeaders(404, -1)
+        exchange.close()
+    }
+
     private companion object {
         val BODY_METHODS = setOf("POST", "PUT", "PATCH", "DELETE")
         val REQUEST_HOP_HEADERS = setOf("host", "origin", "connection", "keep-alive", "content-length", "transfer-encoding", "upgrade")
@@ -165,5 +203,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         const val MAX_LOG_BUFFER = 256 * 1024
         val JSON_METHOD = Regex("\\\"method\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
         val JSON_ID = Regex("\\\"id\\\"\\s*:\\s*(\\\"[^\\\"]*\\\"|-?\\d+)")
+        val JSON_ERROR_MESSAGE = Regex("\\\"errorMessage\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
+        val JSON_RPC_ERROR_MESSAGE = Regex("\\\"error\\\"\\s*:\\s*\\{[^}]*\\\"message\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
     }
 }
