@@ -84,7 +84,9 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
             // important for server-side approval flows, which are policy-checked before
             // the tool is executed.
             request.header("Origin", targetOrigin)
-            val body = if (exchange.requestMethod in BODY_METHODS) HttpRequest.BodyPublishers.ofInputStream { exchange.requestBody } else HttpRequest.BodyPublishers.noBody()
+            val requestBytes = if (exchange.requestMethod in BODY_METHODS) exchange.requestBody.readBytes() else ByteArray(0)
+            if (requestBytes.isNotEmpty()) logRequestSummary(exchangeId, requestBytes)
+            val body = if (requestBytes.isNotEmpty()) HttpRequest.BodyPublishers.ofByteArray(requestBytes) else HttpRequest.BodyPublishers.noBody()
             val response = client.send(request.method(exchange.requestMethod, body).build(), HttpResponse.BodyHandlers.ofInputStream())
             log.debug(
                 "MCP[$exchangeId] upstream response status=${response.statusCode()} " +
@@ -148,6 +150,14 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         }
     }
 
+    private fun logRequestSummary(exchangeId: Long, body: ByteArray) {
+        val text = String(body, 0, minOf(body.size, MAX_LOG_BUFFER), Charsets.UTF_8)
+        val method = JSON_METHOD.find(text)?.groupValues?.get(1) ?: return
+        val id = JSON_ID.find(text)?.groupValues?.get(1).orEmpty()
+        val tool = JSON_TOOL_NAME.find(text)?.groupValues?.get(1)
+        log.debug("MCP[$exchangeId] request method=$method id=$id${tool?.let { " tool=$it" }.orEmpty()}")
+    }
+
     private fun logSseMessages(exchangeId: Long, buffer: StringBuilder) {
         while (true) {
             val separator = buffer.indexOf("\n\n")
@@ -202,6 +212,7 @@ class ExperimentalHttpReverseProxy(private val executor: Executor) {
         const val MAX_LOG_BUFFER = 256 * 1024
         val JSON_METHOD = Regex("\\\"method\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
         val JSON_ID = Regex("\\\"id\\\"\\s*:\\s*(\\\"[^\\\"]*\\\"|-?\\d+)")
+        val JSON_TOOL_NAME = Regex("\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
         val JSON_ERROR_MESSAGE = Regex("\\\"errorMessage\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
         val JSON_RPC_ERROR_MESSAGE = Regex("\\\"error\\\"\\s*:\\s*\\{[^}]*\\\"message\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
     }
