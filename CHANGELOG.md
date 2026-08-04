@@ -7,6 +7,9 @@
 - Add safe IntelliJ bridge diagnostics for request headers, sessions, responses, SSE messages, and timings.
 - Add regression coverage for server-initiated approval requests and approval responses.
 - Detect IntelliJ MCP restarts from the configured port and recycle the bridge endpoint for new client sessions.
+- Virtualize MCP session IDs and recreate IntelliJ upstream sessions after restarts or connection failures.
+- Keep bridge listeners alive during transient IntelliJ MCP target loss to reduce unnecessary SSE disconnects.
+- Note: Claude Code may require `/mcp reconnect` after an IntelliJ restart when its elicitation state is not recovered.
 
 ## 0.1.9 - 2026-07-31
 

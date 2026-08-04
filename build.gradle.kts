@@ -59,6 +59,9 @@ intellijPlatform {
               <li>Add safe diagnostics for MCP request, response, SSE, and timing events.</li>
               <li>Add regression coverage for server-initiated approval requests and responses.</li>
               <li>Recycle the bridge endpoint when IntelliJ MCP restarts so clients can establish fresh sessions.</li>
+              <li>Virtualize MCP sessions and recreate IntelliJ upstream sessions after restarts or connection failures.</li>
+              <li>Keep bridge listeners alive during transient IntelliJ MCP target loss.</li>
+              <li>Claude Code may require <code>/mcp reconnect</code> after an IntelliJ restart if its elicitation state is not recovered.</li>
             </ul>
             <h2>0.1.9</h2>
             <ul>
