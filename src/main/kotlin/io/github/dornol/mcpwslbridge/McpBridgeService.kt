@@ -132,9 +132,11 @@ class McpBridgeService(
             }
         }
         if (resolvedRoutes.isEmpty()) {
-            stopListeners()
-            activeTarget = null
-            activeRoutes = emptyList()
+            if (listeners.isEmpty()) {
+                stopListeners()
+                activeTarget = null
+                activeRoutes = emptyList()
+            }
             lastError = "IntelliJ MCP server was not found. Enable it in Settings | Tools | MCP Server."
             publishStatus(snapshot)
             return
