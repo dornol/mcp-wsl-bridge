@@ -74,7 +74,7 @@ class BridgeSettings : PersistentStateComponent<BridgeSettings.State> {
         return listOf(
             ServerProfile(
                 id = "intellij",
-                displayName = "IntelliJ MCP",
+                displayName = "Built-in IDE MCP",
                 publicPath = "/stream",
                 targetHost = current.targetHost,
                 targetPort = current.targetPort,

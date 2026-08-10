@@ -1,5 +1,6 @@
 package io.github.dornol.mcpwslbridge
 
+import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.util.SystemInfo
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -8,7 +9,22 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 object WslClientConfigurator {
+    /** Kept for compatibility with clients that used the old fixed name. */
     const val SERVER_NAME = "intellij-wsl-bridge"
+
+    fun defaultServerName(): String {
+        val product = runCatching { ApplicationNamesInfo.getInstance().productName }
+            .getOrDefault("IntelliJ IDEA")
+        val productId = when {
+            product.contains("RustRover", ignoreCase = true) -> "rustrover"
+            product.contains("IntelliJ", ignoreCase = true) || product.contains("IDEA", ignoreCase = true) -> "intellij"
+            else -> product.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        }
+        return "${productId.ifBlank { "ide" }}-wsl-bridge"
+    }
+
+    fun serverNameForRoute(routeId: String): String =
+        if (routeId == "intellij") defaultServerName() else routeId
 
     data class CommandResult(val exitCode: Int, val output: String) {
         val succeeded: Boolean get() = exitCode == 0
@@ -23,11 +39,11 @@ object WslClientConfigurator {
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
-        return configureCodex(distro, endpoint, SERVER_NAME)
+        return configureCodex(distro, endpoint, defaultServerName())
     }
 
     fun configureClaudeCode(distro: String, endpoint: String): CommandResult {
-        return configureClaudeCode(distro, endpoint, SERVER_NAME)
+        return configureClaudeCode(distro, endpoint, defaultServerName())
     }
 
     fun configureCodex(distro: String, endpoint: String, serverName: String): CommandResult {
@@ -44,7 +60,7 @@ object WslClientConfigurator {
     }
 
     fun configureCopilotCli(distro: String, endpoint: String): CommandResult {
-        return configureCopilotCli(distro, endpoint, SERVER_NAME)
+        return configureCopilotCli(distro, endpoint, defaultServerName())
     }
 
     fun configureCopilotCli(distro: String, endpoint: String, serverName: String): CommandResult {
@@ -67,7 +83,7 @@ object WslClientConfigurator {
     fun genericJson(endpoint: String): String = """
         {
           "mcpServers": {
-            "$SERVER_NAME": {
+            "${defaultServerName()}": {
               "url": "$endpoint"
             }
           }
@@ -135,7 +151,7 @@ object WslClientConfigurator {
     internal fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
 
     private fun execute(command: List<String>): CommandResult {
-        if (!SystemInfo.isWindows) return CommandResult(1, "WSL auto-configuration is available only when IntelliJ runs on Windows.")
+        if (!SystemInfo.isWindows) return CommandResult(1, "WSL auto-configuration is available only when a JetBrains IDE runs on Windows.")
         return runCatching {
             val process = ProcessBuilder(command)
                 .redirectErrorStream(true)

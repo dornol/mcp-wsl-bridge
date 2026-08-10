@@ -179,7 +179,7 @@ class McpBridgeServiceTest {
     }
 
     @Test
-    fun `missing IntelliJ MCP target remains in starting state`() {
+    fun `missing JetBrains MCP target remains in starting state`() {
         val settings = enabledSettings(freeConsecutivePort()).apply {
             update(snapshot().apply { targetMode = BridgeSettings.TargetMode.AUTO })
         }
@@ -194,9 +194,9 @@ class McpBridgeServiceTest {
         try {
             await {
                 service.status().state == McpBridgeService.State.STARTING &&
-                    service.status().error?.startsWith("IntelliJ MCP server was not found") == true
+                    service.status().error?.startsWith("JetBrains MCP server was not found") == true
             }
-            assertTrue(service.status().error.orEmpty().startsWith("IntelliJ MCP server was not found"))
+            assertTrue(service.status().error.orEmpty().startsWith("JetBrains MCP server was not found"))
         } finally {
             service.dispose()
         }
