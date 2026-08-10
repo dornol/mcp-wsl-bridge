@@ -46,6 +46,7 @@ class McpBridgeService(
     @Volatile private var boundPort: Int? = null
     @Volatile private var lastSuccessfulRefreshTime: Long? = null
     @Volatile private var currentStatus: Status? = null
+    @Volatile private var lastLoggedTarget: String? = null
     @Volatile private var ensuredWslProxy: String? = null
     @Volatile private var experimentalProxyIdentity: String? = null
     private val autoConfiguringClients = ConcurrentHashMap.newKeySet<String>()
@@ -117,6 +118,7 @@ class McpBridgeService(
             activeTarget = null
             activeRoutes = emptyList()
             lastError = null
+            lastLoggedTarget = null
             publishStatus(snapshot)
             return
         }
@@ -137,13 +139,20 @@ class McpBridgeService(
                 activeTarget = null
                 activeRoutes = emptyList()
             }
-            lastError = "IntelliJ MCP server was not found. Enable it in Settings | Tools | MCP Server."
+            lastError = "JetBrains MCP server was not found. Enable it in Settings | Tools | MCP Server. ${targetResolver.diagnostic()}"
+            log.warn(lastError)
+            lastLoggedTarget = null
             publishStatus(snapshot)
             return
         }
 
         activeRoutes = resolvedRoutes
         activeTarget = resolvedRoutes.first().target
+        val targetDescription = resolvedRoutes.joinToString { "${it.target.host}:${it.target.port} (${it.target.source})" }
+        if (lastLoggedTarget != targetDescription) {
+            log.info("Resolved MCP targets: $targetDescription")
+            lastLoggedTarget = targetDescription
+        }
         val requestedAddresses = addressesProvider(snapshot).toSet()
         if (requestedAddresses.isEmpty()) {
             stopListeners()
@@ -182,7 +191,7 @@ class McpBridgeService(
     private fun statusFor(snapshot: BridgeSettings.State): Status {
         val state = when {
             !snapshot.enabled -> State.DISABLED
-            lastError?.startsWith("IntelliJ MCP server was not found") == true -> State.STARTING
+            lastError?.startsWith("JetBrains MCP server was not found") == true -> State.STARTING
             lastError != null -> State.ERROR
             listeners.isNotEmpty() && activeTarget != null -> State.CONNECTED
             else -> State.STARTING
@@ -216,7 +225,8 @@ class McpBridgeService(
         val address = listeners.keys.firstOrNull() ?: return
         val configuredRoutes = activeRoutes.map { route ->
             val profile = settings.serverProfiles().firstOrNull { it.publicPath == route.publicPath }
-            val serverName = if (profile?.id == "intellij") WslClientConfigurator.SERVER_NAME else profile?.id ?: route.publicPath.trim('/').replace('/', '-')
+            val serverName = profile?.let { WslClientConfigurator.serverNameForRoute(it.id) }
+                ?: route.publicPath.trim('/').replace('/', '-')
             serverName to "http://$address:${snapshot.listenerPort}${route.publicPath}"
         }
         val codexDistros = snapshot.configuredCodexDistros.toMutableSet().apply {

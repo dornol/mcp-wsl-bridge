@@ -12,7 +12,7 @@ WSL-facing endpoint and the local target endpoint:
 
 ```text
 /stream                         -> http://127.0.0.1:64342/stream
-/index-mcp/streamable-http      -> http://127.0.0.1:29170/index-mcp/streamable-http
+/index-mcp/streamable-http      -> http://127.0.0.1:<detected>/index-mcp/streamable-http
 ```
 
 From WSL, clients use the bridge address and the same path:
@@ -28,11 +28,12 @@ bridge does not inspect or rename MCP tools.
 
 ## IDE Index MCP Server example
 
-The IDE Index MCP Server uses Streamable HTTP. Its IntelliJ IDEA default is
-port `29170` and its primary endpoint is:
+The IDE Index MCP Server uses Streamable HTTP. IntelliJ IDEA commonly starts it
+around port `29170`, but the port can vary by IDE/version. The bridge probes
+the nearby loopback ports automatically. Its primary endpoint is:
 
 ```text
-http://127.0.0.1:29170/index-mcp/streamable-http
+http://127.0.0.1:<detected>/index-mcp/streamable-http
 ```
 
 Configure it with the MCP path `/index-mcp/streamable-http`. The IntelliJ

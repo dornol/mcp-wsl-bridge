@@ -114,6 +114,7 @@ class McpBridgeStatusBarWidget(private val project: Project) : StatusBarWidget, 
                 append(" — http://$address:${status.listenerPort}$path")
                 if (status.routes.size > 1) append(" (+${status.routes.size - 1} MCP routes)")
             }
+            status.target?.let { append(" — target ${it.host}:${it.port} (${it.source})") }
         }
         if (status.error != null && status.state == McpBridgeService.State.ERROR) append(" — ${status.error}")
     }

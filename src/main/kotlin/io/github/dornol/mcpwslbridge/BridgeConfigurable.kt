@@ -40,7 +40,7 @@ import javax.swing.JTextArea
 
 class BridgeConfigurable : Configurable {
     private var root: JPanel? = null
-    private val enabled = JBCheckBox("Enable MCP WSL Bridge and start it automatically with IntelliJ")
+    private val enabled = JBCheckBox("Enable MCP WSL Bridge and start it automatically with this IDE")
     private val listenerPort = JBTextField()
     private data class ServerListItem(val profile: BridgeSettings.ServerProfile) {
         override fun toString(): String = profile.displayName
@@ -221,9 +221,13 @@ class BridgeConfigurable : Configurable {
         val profile = item.profile
         val builtIn = profile.serverType == BridgeSettings.ServerType.INTELLIJ_BUILT_IN
         serverDetailName.text = profile.displayName
-        serverDetailType.text = if (builtIn) "Built-in IntelliJ MCP" else "HTTP MCP"
+        serverDetailType.text = if (builtIn) "Built-in JetBrains MCP" else "HTTP MCP"
         serverDetailPath.text = profile.publicPath
-        serverDetailTarget.text = if (builtIn) "Auto-detected IntelliJ MCP port" else "${profile.targetHost}:${profile.targetPort}"
+        serverDetailTarget.text = if (profile.targetMode == BridgeSettings.TargetMode.AUTO) {
+            "Auto-detected near ${profile.targetPort}"
+        } else {
+            "${profile.targetHost}:${profile.targetPort}"
+        }
         serverDetailStatus.text = if (profile.enabled) "Enabled" else "Disabled"
         serverDetailNote.text = if (builtIn) "Always enabled and read-only" else "Double-click the item or use Edit to change it"
     }
@@ -233,7 +237,7 @@ class BridgeConfigurable : Configurable {
         if (index < 0) return
         if (serverListModel.getElementAt(index).profile.id == "intellij") {
             Messages.showInfoMessage(
-                "The built-in IntelliJ MCP server is always enabled and cannot be changed or removed.",
+                "The built-in JetBrains MCP server is always enabled and cannot be changed or removed.",
                 "MCP WSL Bridge",
             )
             return
@@ -268,7 +272,7 @@ class BridgeConfigurable : Configurable {
         if (index < 0) return
         if (serverListModel.getElementAt(index).profile.id == "intellij") {
             Messages.showInfoMessage(
-                "The built-in IntelliJ MCP server is always enabled and cannot be changed or removed.",
+                "The built-in JetBrains MCP server is always enabled and cannot be changed or removed.",
                 "MCP WSL Bridge",
             )
             return
@@ -376,13 +380,13 @@ class BridgeConfigurable : Configurable {
         }
         val tabs = JTabbedPane()
         tabs.preferredSize = java.awt.Dimension(860, 135)
-        tabs.addTab("Codex", clientActionPanel("Codex", "Add or update '${WslClientConfigurator.SERVER_NAME}' in ~/.codex/config.toml.") {
+        tabs.addTab("Codex", clientActionPanel("Codex", "Add or update '${WslClientConfigurator.defaultServerName()}' in ~/.codex/config.toml.") {
             applyWslConfiguration("Codex", "codex") { selectedDistro, _ -> configureAllClientRoutes(selectedDistro, "codex") }
         })
-        tabs.addTab("Claude Code", clientActionPanel("Claude Code", "Add or update a user-scoped '${WslClientConfigurator.SERVER_NAME}' MCP server.") {
+        tabs.addTab("Claude Code", clientActionPanel("Claude Code", "Add or update a user-scoped '${WslClientConfigurator.defaultServerName()}' MCP server.") {
             applyWslConfiguration("Claude Code", "claude") { selectedDistro, _ -> configureAllClientRoutes(selectedDistro, "claude") }
         })
-        tabs.addTab("GitHub Copilot CLI", clientActionPanel("GitHub Copilot CLI", "Add or update '${WslClientConfigurator.SERVER_NAME}' in GitHub Copilot CLI.") {
+        tabs.addTab("GitHub Copilot CLI", clientActionPanel("GitHub Copilot CLI", "Add or update '${WslClientConfigurator.defaultServerName()}' in GitHub Copilot CLI.") {
             applyWslConfiguration("GitHub Copilot CLI", "copilot") { selectedDistro, _ -> configureAllClientRoutes(selectedDistro, "copilot") }
         })
         tabs.addTab("Others", JPanel(BorderLayout(4, 4)).apply {
@@ -535,7 +539,7 @@ class BridgeConfigurable : Configurable {
             ?: return WslClientConfigurator.CommandResult(1, current.error ?: "Bridge is not listening.")
         val base = "http://$address:${current.listenerPort}"
         for (route in current.routes.filter { it.target != null }) {
-            val serverName = if (route.id == "intellij") WslClientConfigurator.SERVER_NAME else route.id
+            val serverName = WslClientConfigurator.serverNameForRoute(route.id)
             val endpoint = "$base${route.publicPath}"
             val result = when (client) {
                 "codex" -> WslClientConfigurator.configureCodex(distro, endpoint, serverName)
@@ -549,7 +553,7 @@ class BridgeConfigurable : Configurable {
 
     private fun removeAllClientRoutes(distro: String, client: String): WslClientConfigurator.CommandResult {
         val current = McpBridgeService.getInstance().status()
-        val routeNames = current.routes.map { route -> if (route.id == "intellij") WslClientConfigurator.SERVER_NAME else route.id }
+        val routeNames = current.routes.map { route -> WslClientConfigurator.serverNameForRoute(route.id) }
         var firstFailure: WslClientConfigurator.CommandResult? = null
         routeNames.forEach { serverName ->
             val result = when (client) {
@@ -593,6 +597,12 @@ class BridgeConfigurable : Configurable {
         require(profiles.isNotEmpty()) { "Add at least one MCP server." }
         require(profiles.map { it.id }.distinct().size == profiles.size) { "MCP server IDs must be unique." }
         require(profiles.map { it.publicPath }.distinct().size == profiles.size) { "MCP public paths must be unique." }
+        require(profiles.all { it.id.matches(Regex("[a-zA-Z0-9][a-zA-Z0-9_.-]*")) }) {
+            "MCP server IDs may contain only letters, numbers, '.', '_' and '-'."
+        }
+        require(profiles.map { WslClientConfigurator.serverNameForRoute(it.id) }.distinct().size == profiles.size) {
+            "MCP server IDs produce duplicate WSL server names."
+        }
         return profiles
     }
 
@@ -603,13 +613,17 @@ class BridgeConfigurable : Configurable {
             val address = current.runningAddresses.firstOrNull() ?: error("Bridge is not listening")
             val base = "http://$address:${current.listenerPort}"
             WslClientConfigurator.genericJson(current.routes.associate { route ->
-                val name = if (route.id == "intellij") WslClientConfigurator.SERVER_NAME else route.id
+                val name = WslClientConfigurator.serverNameForRoute(route.id)
                 name to "$base${route.publicPath}"
             })
         }.getOrDefault("Start the bridge to generate a configuration.")
         status.text = when {
             current.error != null -> "Status: ${current.error}"
-            current.runningAddresses.isNotEmpty() -> "Status: listening on ${current.runningAddresses.joinToString()} → ${current.target?.host}:${current.target?.port}"
+            current.runningAddresses.isNotEmpty() -> {
+                val target = current.target
+                "Status: listening on ${current.runningAddresses.joinToString()} → " +
+                    (target?.let { "${it.host}:${it.port} (${it.source})" } ?: "no MCP target")
+            }
             else -> "Status: stopped"
         }
     }
@@ -625,7 +639,7 @@ class BridgeConfigurable : Configurable {
 
     private fun intellijProfile() = BridgeSettings.ServerProfile(
         id = "intellij",
-        displayName = "IntelliJ MCP",
+        displayName = "Built-in IDE MCP",
         publicPath = "/stream",
         targetHost = "127.0.0.1",
         targetPort = BridgeSettings.DEFAULT_MCP_PORT,
@@ -641,7 +655,7 @@ class BridgeConfigurable : Configurable {
         targetHost = "127.0.0.1",
         targetPort = 29170,
         targetPath = "/index-mcp/streamable-http",
-        targetMode = BridgeSettings.TargetMode.MANUAL,
+        targetMode = BridgeSettings.TargetMode.AUTO,
         serverType = BridgeSettings.ServerType.HTTP,
     )
 
@@ -684,7 +698,7 @@ private class McpServerDialog(existing: BridgeSettings.ServerProfile?) : DialogW
 
     override fun doValidate(): ValidationInfo? {
         val idValue = id.text.trim()
-        if (!idValue.matches(Regex("[A-Za-z0-9._-]+"))) {
+        if (!idValue.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.-]*"))) {
             return ValidationInfo("Use letters, numbers, dots, underscores, or hyphens for the ID.", id)
         }
         if (publicPath.text.trim().isBlank() || !publicPath.text.trim().startsWith('/')) {

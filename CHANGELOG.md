@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.11 - 2026-08-10
+
+- Detect JetBrains MCP ports across IntelliJ IDEA, RustRover, and other IDEs.
+- Detect IDE Index MCP ports around the IDE-specific default instead of assuming `29170`.
+- Use IDE-specific WSL server names such as `intellij-wsl-bridge` and `rustrover-wsl-bridge`.
+- Improve WSL configuration labels, route-name validation, target diagnostics, and status reporting.
+- Preserve bridge listeners during transient MCP target loss and improve session recovery compatibility.
+
 ## 0.1.10 - 2026-08-03
 
 - Preserve loopback Origin and Streamable HTTP response framing for IntelliJ MCP approval flows.

@@ -12,7 +12,7 @@ Multiple HTTP MCP servers can be exposed through the same bridge port using
 different paths. See [Multi-MCP Routing](docs/MULTI_MCP_ROUTING.md) for the
 routing model and the IDE Index MCP Server example.
 
-The plugin detects the port saved by the built-in IntelliJ MCP Server and falls back to checking ports beginning at `64342`. A manual target override is available for unusual configurations.
+The plugin detects the port saved by the built-in JetBrains MCP Server and falls back to checking a range of loopback ports, which covers dynamically allocated RustRover ports. The IDE Index MCP route likewise probes around its IntelliJ default (`29170`). A manual target override is available for unusual configurations. WSL registrations use an IDE-specific name such as `intellij-wsl-bridge` or `rustrover-wsl-bridge`.
 
 ## Setup
 
@@ -20,7 +20,7 @@ The plugin detects the port saved by the built-in IntelliJ MCP Server and falls 
 2. Open **Settings | Tools | MCP WSL Bridge**.
 3. Select the `vEthernet (WSL)` IPv4 address (the plugin marks likely WSL interfaces).
 4. Enable the bridge and apply settings. The default listener port is `64343`.
-5. The built-in **IntelliJ MCP** route is always present and auto-detects its port. To add the IDE Index MCP route, click **Add IDE Index MCP**. Its MCP path is `/index-mcp/streamable-http`, target host is `127.0.0.1`, and port is `29170`.
+5. The built-in **JetBrains MCP** route is always present and auto-detects its port. To add the IDE Index MCP route, click **Add IDE Index MCP**. Its MCP path is `/index-mcp/streamable-http`, target host is `127.0.0.1`, and the bridge probes around the default port `29170`.
 6. In the **WSL Client Configuration** section, choose a WSL distribution and select either **Codex**, **Claude Code**, or **GitHub Copilot CLI**. **Apply to WSL** registers every enabled route as a separate MCP server. The **Others** tab copies a generic multi-server streamable HTTP JSON entry.
 7. In WSL, use its default gateway as the Windows host IP:
 

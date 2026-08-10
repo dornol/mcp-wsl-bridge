@@ -32,7 +32,7 @@ class McpTargetResolverTest {
             val target = McpTargetResolver(optionsPathProvider = { directory }, portProbe = { it == 65432 })
                 .resolve(BridgeSettings.State())
 
-            assertEquals(McpTarget("127.0.0.1", 65432, "IntelliJ MCP settings"), target)
+            assertEquals(McpTarget("127.0.0.1", 65432, "JetBrains MCP settings"), target)
         } finally {
             Files.deleteIfExists(directory.resolve("mcpServer.xml"))
             Files.deleteIfExists(directory)
@@ -85,6 +85,20 @@ class McpTargetResolverTest {
     }
 
     @Test
+    fun `auto target finds RustRover MCP port outside IntelliJ default range`() {
+        val directory = Files.createTempDirectory("mcp-target-rustrover")
+        try {
+            val rustRoverPort = 64522
+            val target = McpTargetResolver({ directory }, portProbe = { it == rustRoverPort })
+                .resolve(BridgeSettings.State())
+
+            assertEquals(McpTarget("127.0.0.1", rustRoverPort, "Loopback port probe"), target)
+        } finally {
+            Files.deleteIfExists(directory)
+        }
+    }
+
+    @Test
     fun `built in profile auto detects configured port while HTTP profile stays manual`() {
         val directory = Files.createTempDirectory("mcp-profile-target")
         try {
@@ -109,10 +123,32 @@ class McpTargetResolverTest {
                     targetPort = 29170,
                 ),
             )
-            assertEquals(McpTarget("127.0.0.1", 65433, "IntelliJ MCP settings"), builtIn)
+            assertEquals(McpTarget("127.0.0.1", 65433, "JetBrains MCP settings"), builtIn)
             assertEquals(McpTarget("127.0.0.1", 29170, "Manual setting"), custom)
         } finally {
             Files.deleteIfExists(directory.resolve("mcpServer.xml"))
+            Files.deleteIfExists(directory)
+        }
+    }
+
+    @Test
+    fun `IDE Index profile probes around its default port`() {
+        val directory = Files.createTempDirectory("mcp-target-index")
+        try {
+            val resolver = McpTargetResolver({ directory }, portProbe = { it == 29178 })
+            val target = resolver.resolve(
+                BridgeSettings.ServerProfile(
+                    id = "intellij-index",
+                    serverType = BridgeSettings.ServerType.HTTP,
+                    targetMode = BridgeSettings.TargetMode.AUTO,
+                    targetHost = "127.0.0.1",
+                    targetPort = 29170,
+                    targetPath = "/index-mcp/streamable-http",
+                ),
+            )
+
+            assertEquals(McpTarget("127.0.0.1", 29178, "IDE Index MCP loopback probe"), target)
+        } finally {
             Files.deleteIfExists(directory)
         }
     }

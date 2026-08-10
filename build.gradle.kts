@@ -52,6 +52,14 @@ intellijPlatform {
         <p><b>Security:</b> select only network interfaces you intend to expose. The bridge has no authentication and should not be bound to Wi-Fi, Ethernet, or VPN addresses unless required.</p>
         """.trimIndent()
         changeNotes = """
+            <h2>0.1.11</h2>
+            <ul>
+              <li>Detect JetBrains MCP ports across IntelliJ IDEA, RustRover, and other IDEs.</li>
+              <li>Detect IDE Index MCP ports around the IDE-specific default instead of assuming <code>29170</code>.</li>
+              <li>Use IDE-specific WSL server names such as <code>intellij-wsl-bridge</code> and <code>rustrover-wsl-bridge</code>.</li>
+              <li>Improve WSL configuration labels, route-name validation, target diagnostics, and status reporting.</li>
+              <li>Preserve bridge listeners during transient MCP target loss and improve session recovery compatibility.</li>
+            </ul>
             <h2>0.1.10</h2>
             <ul>
               <li>Preserve loopback Origin and Streamable HTTP response framing for IntelliJ MCP approval flows.</li>
