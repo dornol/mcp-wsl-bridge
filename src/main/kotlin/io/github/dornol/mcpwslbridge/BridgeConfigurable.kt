@@ -37,10 +37,16 @@ import javax.swing.JSplitPane
 import javax.swing.JTabbedPane
 import javax.swing.ListSelectionModel
 import javax.swing.JTextArea
+import java.net.Socket
+import java.net.URI
 
 class BridgeConfigurable : Configurable {
     private var root: JPanel? = null
     private val enabled = JBCheckBox("Enable MCP WSL Bridge and start it automatically with this IDE")
+    private val autoRefreshClients = JBCheckBox("Automatically refresh configured WSL clients")
+    private val authEnabled = JBCheckBox("Require an authentication token for WSL HTTP endpoints")
+    private val authToken = JBTextField()
+    private val endpointAddress = JComboBox<String>()
     private val listenerPort = JBTextField()
     private data class ServerListItem(val profile: BridgeSettings.ServerProfile) {
         override fun toString(): String = profile.displayName
@@ -81,10 +87,19 @@ class BridgeConfigurable : Configurable {
     private val interfacePanel = JPanel().apply { layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS) }
     private val interfaceChecks = linkedMapOf<String, JBCheckBox>()
     private val interfaceNamesByAddress = linkedMapOf<String, String>()
-    private val distro = JComboBox<String>()
+    private val distro = JComboBox<String>().apply {
+        addActionListener {
+            if (isEnabled) refreshClientAvailability(selectedItem as? String)
+        }
+    }
     private val clientEndpoint = JBLabel()
     private val genericConfig = JTextArea(4, 52).apply { isEditable = false; lineWrap = false }
     private val status = JBLabel()
+    private val clientActionButtons = mutableMapOf<String, JButton>()
+    private val clientStatusLabels = mutableMapOf<String, JBLabel>()
+    private val wslClientStatus = WslClientStatusService()
+    private val endpointService = BridgeEndpointService()
+    private val wslClientRoutes = WslClientRouteService()
     private var distributionsLoading = false
     private var distributionLoadGeneration = 0
 
@@ -103,11 +118,35 @@ class BridgeConfigurable : Configurable {
         c.gridy++
         panel.add(listenerPort, c)
         c.gridy++
+        panel.add(JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+            add(autoRefreshClients)
+            add(JBLabel("WSL endpoint address:"))
+            endpointAddress.preferredSize = java.awt.Dimension(180, endpointAddress.preferredSize.height)
+            add(endpointAddress)
+        }, c)
+        c.gridy++
+        panel.add(JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+            authEnabled.addActionListener { authToken.isEnabled = authEnabled.isSelected }
+            add(authEnabled)
+            authToken.preferredSize = java.awt.Dimension(280, authToken.preferredSize.height)
+            add(authToken)
+            add(JButton("Generate token").apply {
+                addActionListener { authToken.text = BridgeSettings.newAuthToken() }
+            })
+        }, c)
+        c.gridy++
         panel.add(JBLabel("Network interfaces — only checked IPv4 addresses accept connections:"), c)
         c.gridy++
         panel.add(JScrollPane(interfacePanel).apply { preferredSize = java.awt.Dimension(560, 140) }, c)
         c.gridy++
-        panel.add(JButton("Refresh interfaces").apply { addActionListener { populateInterfaces(selectedAddresses().toSet()) } }, c)
+        panel.add(JButton("Refresh interfaces").apply {
+            addActionListener {
+                populateInterfaces(
+                    selectedAddresses().toSet(),
+                    selectedEndpointAddress = endpointAddress.selectedItem as? String ?: "",
+                )
+            }
+        }, c)
         c.gridy++
         panel.add(serverConfigurationPanel(), c)
         c.gridy++
@@ -286,6 +325,10 @@ class BridgeConfigurable : Configurable {
         val state = BridgeSettings.getInstance().snapshot()
         return enabled.isSelected != state.enabled ||
             listenerPort.text.toIntOrNull() != state.listenerPort ||
+            autoRefreshClients.isSelected != state.autoRefreshClients ||
+            authEnabled.isSelected != state.authEnabled ||
+            authToken.text.trim() != state.authToken ||
+            (endpointAddress.selectedItem as? String ?: "") != state.endpointAddress ||
             selectedInterfaceNames().toSet() != storedInterfaceNames(state) ||
             serverProfiles() != uiProfiles(state) ||
             (!distributionsLoading && (distro.selectedItem as? String ?: "") != state.wslDistro)
@@ -302,10 +345,15 @@ class BridgeConfigurable : Configurable {
                 listenerPort = port,
                 selectedAddresses = selectedAddresses().toMutableList(),
                 selectedInterfaceNames = selectedInterfaceNames().toMutableList(),
+                endpointAddress = endpointAddress.selectedItem as? String ?: "",
+                authEnabled = authEnabled.isSelected,
+                authToken = if (authEnabled.isSelected) authToken.text.trim().ifBlank { BridgeSettings.newAuthToken() } else "",
+                autoRefreshClients = autoRefreshClients.isSelected,
                 servers = profiles.toMutableList(),
                 wslDistro = if (distributionsLoading) currentState.wslDistro else distro.selectedItem as? String ?: "",
             ),
         )
+        authToken.text = BridgeSettings.getInstance().snapshot().authToken
         status.text = "Status: applying bridge settings..."
         McpBridgeService.getInstance().restart {
             ApplicationManager.getApplication().invokeLater {
@@ -318,8 +366,12 @@ class BridgeConfigurable : Configurable {
         val state = BridgeSettings.getInstance().snapshot()
         enabled.isSelected = state.enabled
         listenerPort.text = state.listenerPort.toString()
+        autoRefreshClients.isSelected = state.autoRefreshClients
+        authEnabled.isSelected = state.authEnabled
+        authToken.text = state.authToken
+        authToken.isEnabled = state.authEnabled
         setServerProfiles(uiProfiles(state))
-        populateInterfaces(state.selectedAddresses.toSet(), state.selectedInterfaceNames.toSet())
+        populateInterfaces(state.selectedAddresses.toSet(), state.selectedInterfaceNames.toSet(), state.endpointAddress)
         populateDistributionsAsync(state.wslDistro)
         updateStatus()
     }
@@ -331,10 +383,15 @@ class BridgeConfigurable : Configurable {
         interfaceChecks.clear()
     }
 
-    private fun populateInterfaces(selectedAddresses: Set<String>, selectedInterfaceNames: Set<String> = emptySet()) {
+    private fun populateInterfaces(
+        selectedAddresses: Set<String>,
+        selectedInterfaceNames: Set<String> = emptySet(),
+        selectedEndpointAddress: String = "",
+    ) {
         interfacePanel.removeAll()
         interfaceChecks.clear()
         interfaceNamesByAddress.clear()
+        endpointAddress.removeAllItems()
         NetworkInterfaces.availableIpv4Addresses().forEach { item ->
             JBCheckBox(
                 item.label,
@@ -345,10 +402,22 @@ class BridgeConfigurable : Configurable {
                 interfaceChecks[item.address] = check
                 interfaceNamesByAddress[item.address] = item.interfaceName
                 interfacePanel.add(check)
+                if (check.isSelected) endpointAddress.addItem(item.address)
+                check.addActionListener { refreshEndpointAddresses(endpointAddress.selectedItem as? String ?: "") }
             }
         }
+        if (selectedEndpointAddress.isNotBlank()) endpointAddress.selectedItem = selectedEndpointAddress
+        if (endpointAddress.selectedIndex < 0 && endpointAddress.itemCount > 0) endpointAddress.selectedIndex = 0
         interfacePanel.revalidate()
         interfacePanel.repaint()
+    }
+
+    private fun refreshEndpointAddresses(preferred: String = "") {
+        val selected = preferred.ifBlank { endpointAddress.selectedItem as? String ?: "" }
+        endpointAddress.removeAllItems()
+        interfaceChecks.filterValues { it.isSelected }.keys.forEach(endpointAddress::addItem)
+        if (selected.isNotBlank()) endpointAddress.selectedItem = selected
+        if (endpointAddress.selectedIndex < 0 && endpointAddress.itemCount > 0) endpointAddress.selectedIndex = 0
     }
 
     private fun selectedAddresses(): List<String> = interfaceChecks.filterValues { it.isSelected }.keys.toList()
@@ -367,59 +436,75 @@ class BridgeConfigurable : Configurable {
         }
 
     private fun clientConfigurationPanel(): JComponent {
-        val panel = JPanel(BorderLayout(6, 6)).apply {
-            border = BorderFactory.createTitledBorder("WSL Client Configuration")
-        }
-        val controls = JPanel().apply {
-            add(JBLabel("WSL distro:"))
-            add(distro)
-            add(JButton("Refresh distros").apply {
-                addActionListener { populateDistributionsAsync(distro.selectedItem as? String ?: "") }
-            })
-            add(clientEndpoint)
-        }
-        val tabs = JTabbedPane()
-        tabs.preferredSize = java.awt.Dimension(860, 135)
-        tabs.addTab("Codex", clientActionPanel("Codex", "Add or update '${WslClientConfigurator.defaultServerName()}' in ~/.codex/config.toml.") {
-            applyWslConfiguration("Codex", "codex") { selectedDistro, _ -> configureAllClientRoutes(selectedDistro, "codex") }
-        })
-        tabs.addTab("Claude Code", clientActionPanel("Claude Code", "Add or update a user-scoped '${WslClientConfigurator.defaultServerName()}' MCP server.") {
-            applyWslConfiguration("Claude Code", "claude") { selectedDistro, _ -> configureAllClientRoutes(selectedDistro, "claude") }
-        })
-        tabs.addTab("GitHub Copilot CLI", clientActionPanel("GitHub Copilot CLI", "Add or update '${WslClientConfigurator.defaultServerName()}' in GitHub Copilot CLI.") {
-            applyWslConfiguration("GitHub Copilot CLI", "copilot") { selectedDistro, _ -> configureAllClientRoutes(selectedDistro, "copilot") }
-        })
-        tabs.addTab("Others", JPanel(BorderLayout(4, 4)).apply {
-            add(JBLabel("Generic streamable HTTP MCP JSON for all configured servers:"), BorderLayout.NORTH)
-            add(JScrollPane(genericConfig), BorderLayout.CENTER)
-            add(JButton("Copy generic JSON").apply {
-                addActionListener {
-                    runCatching { endpoint() }
-                        .onSuccess { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(WslClientConfigurator.genericJson(it)), null) }
-                        .onFailure { Messages.showErrorDialog(it.message ?: "Bridge is not listening.", "MCP WSL Bridge") }
+        val panel = WslClientPanel(
+            distro = distro,
+            endpointLabel = clientEndpoint,
+            genericConfig = genericConfig,
+            onRefreshDistros = { populateDistributionsAsync(distro.selectedItem as? String ?: "") },
+            onCopyEndpoint = {
+                runCatching { httpEndpoint() }
+                    .onSuccess { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(it), null) }
+                    .onFailure { Messages.showErrorDialog(it.message ?: "Bridge is not listening.", "MCP WSL Bridge") }
+            },
+            onCopyGeneric = {
+                runCatching {
+                    val current = McpBridgeService.getInstance().status()
+                    WslClientConfigurator.genericJson(endpointService.endpoints(current))
+                }.onSuccess { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(it), null) }
+                    .onFailure { Messages.showErrorDialog(it.message ?: "Bridge is not listening.", "MCP WSL Bridge") }
+            },
+            onResetHistory = { resetImportedWslHistory() },
+            onApply = { name, key ->
+                applyWslConfiguration(name, key) { selectedDistro, _ ->
+                    configureAllClientRoutes(selectedDistro, key) { route ->
+                        updateWslActionStatus("Applying $name route '$route' in WSL '$selectedDistro'...")
+                    }
                 }
-            }, BorderLayout.SOUTH)
-        })
-        panel.add(controls, BorderLayout.NORTH)
-        panel.add(tabs, BorderLayout.CENTER)
-        panel.preferredSize = java.awt.Dimension(900, 190)
-        return panel
+            },
+            onRemove = { name, key -> removeWslConfiguration(name, key) },
+            onTest = { name, key -> testWslConnection(name, key) },
+        )
+        clientActionButtons.putAll(panel.applyButtons)
+        clientStatusLabels.putAll(panel.statusLabels)
+        return panel.create()
     }
 
-    private fun clientActionPanel(clientName: String, description: String, action: () -> Unit): JComponent = JPanel(BorderLayout(4, 4)).apply {
-        add(JBLabel(description), BorderLayout.NORTH)
-        add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-            add(JButton("Apply to WSL").apply { addActionListener { action() } })
-            add(JButton("Remove from WSL").apply {
-                addActionListener { removeWslConfiguration(clientName, clientKeyFor(clientName)) }
-            })
-        }, BorderLayout.SOUTH)
-    }
-
-    private fun clientKeyFor(clientName: String): String = when (clientName) {
-        "Codex" -> "codex"
-        "Claude Code" -> "claude"
-        else -> "copilot"
+    private fun testWslConnection(clientName: String, clientKey: String) {
+        val selectedDistro = distro.selectedItem as? String
+        if (selectedDistro.isNullOrBlank()) {
+            Messages.showErrorDialog("Choose a WSL distribution first.", "MCP WSL Bridge")
+            return
+        }
+        val endpoint = runCatching { httpEndpoint() }.getOrElse { error ->
+            Messages.showErrorDialog(error.message ?: "Bridge is not listening.", "MCP WSL Bridge")
+            return
+        }
+        status.text = "Testing $clientName in WSL '$selectedDistro'..."
+        clientStatusLabels[clientKey]?.text = "Testing..."
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val result = runCatching {
+                if (!wslClientStatus.isInstalled(selectedDistro, clientKey)) {
+                    error("CLI is not installed or is not on PATH")
+                } else {
+                    val uri = URI(endpoint)
+                    Socket().use { socket ->
+                        socket.connect(java.net.InetSocketAddress(uri.host, uri.port), 3_000)
+                    }
+                    "Connected to $endpoint"
+                }
+            }
+            ApplicationManager.getApplication().invokeLater {
+                if (root == null) return@invokeLater
+                if (result.isSuccess) {
+                    clientStatusLabels[clientKey]?.text = "Connection OK"
+                    status.text = "Test passed for $clientName in WSL '$selectedDistro'."
+                } else {
+                    clientStatusLabels[clientKey]?.text = "Connection failed"
+                    status.text = "Test failed for $clientName in WSL '$selectedDistro'."
+                    Messages.showErrorDialog(result.exceptionOrNull()?.message ?: "Connection test failed.", "MCP WSL Bridge")
+                }
+            }
+        }
     }
 
     private fun removeWslConfiguration(clientName: String, clientKey: String) {
@@ -437,7 +522,16 @@ class BridgeConfigurable : Configurable {
 
         status.text = "Removing MCP WSL Bridge servers from WSL '$selectedDistro'..."
         ApplicationManager.getApplication().executeOnPooledThread {
-            val result = removeAllClientRoutes(selectedDistro, clientKey)
+            updateWslActionStatus("Checking $clientName in WSL '$selectedDistro'...")
+            val result = if (!wslClientStatus.isInstalled(selectedDistro, clientKey)) {
+                WslClientConfigurator.CommandResult(
+                    127,
+                    "$clientName is not installed in WSL '$selectedDistro' or is not available on its PATH.",
+                )
+            } else {
+                updateWslActionStatus("Removing $clientName MCP settings from WSL '$selectedDistro'...")
+                removeAllClientRoutes(selectedDistro, clientKey)
+            }
             ApplicationManager.getApplication().invokeLater {
                 if (result.succeeded) {
                     BridgeSettings.getInstance().snapshot().also { current ->
@@ -472,7 +566,7 @@ class BridgeConfigurable : Configurable {
         distro.isEnabled = false
         clientEndpoint.text = "Loading WSL distributions..."
         ApplicationManager.getApplication().executeOnPooledThread {
-            val distributions = WslClientConfigurator.distributions()
+            val distributions = WslClientConfigurator.refreshDistributions()
             ApplicationManager.getApplication().invokeLater {
                 if (root == null || generation != distributionLoadGeneration) return@invokeLater
                 distro.removeAllItems()
@@ -482,8 +576,46 @@ class BridgeConfigurable : Configurable {
                 distro.isEnabled = true
                 distributionsLoading = false
                 updateStatus()
+                refreshClientAvailability(distro.selectedItem as? String)
             }
         }
+    }
+
+    private fun refreshClientAvailability(selectedDistro: String?) {
+        val distroName = selectedDistro.orEmpty()
+        clientActionButtons.values.forEach { it.isEnabled = false }
+        clientStatusLabels.values.forEach { it.text = if (distroName.isBlank()) "Choose a WSL distro" else "Checking..." }
+        if (distroName.isBlank()) return
+        listOf("codex", "claude", "copilot").forEach { client ->
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val available = wslClientStatus.status(distroName, client, forceRefresh = true).installed
+                ApplicationManager.getApplication().invokeLater {
+                    if (root == null || distro.selectedItem != distroName) return@invokeLater
+                    clientActionButtons[client]?.isEnabled = available
+                    clientStatusLabels[client]?.text = if (available) "Installed" else "Not installed / PATH missing"
+                }
+            }
+        }
+    }
+
+    private fun resetImportedWslHistory() {
+        val confirmation = Messages.showYesNoDialog(
+            "Clear imported WSL distribution and Codex/Claude/Copilot configuration history? Existing MCP entries in WSL will not be removed.",
+            "Reset imported WSL history",
+            Messages.getQuestionIcon(),
+        )
+        if (confirmation != Messages.YES) return
+        BridgeSettings.getInstance().snapshot().also { current ->
+            current.wslDistro = ""
+            current.codexConfigured = false
+            current.claudeConfigured = false
+            current.configuredCodexDistros.clear()
+            current.configuredClaudeDistros.clear()
+            current.configuredCopilotDistros.clear()
+            BridgeSettings.getInstance().update(current)
+        }
+        populateDistributionsAsync("")
+        status.text = "Imported WSL client history reset."
     }
 
     private fun applyWslConfiguration(clientName: String, clientKey: String, action: (String, String) -> WslClientConfigurator.CommandResult) {
@@ -502,7 +634,18 @@ class BridgeConfigurable : Configurable {
         }
         status.text = "Configuring $clientName in WSL '$selectedDistro'..."
         ApplicationManager.getApplication().executeOnPooledThread {
-            val result = runCatching { action(selectedDistro, bridgeEndpoint) }
+            updateWslActionStatus("Checking $clientName in WSL '$selectedDistro'...")
+            val result = runCatching {
+                if (!wslClientStatus.isInstalled(selectedDistro, clientKey)) {
+                    WslClientConfigurator.CommandResult(
+                        127,
+                        "$clientName is not installed in WSL '$selectedDistro' or is not available on its PATH.",
+                    )
+                } else {
+                    updateWslActionStatus("Applying $clientName MCP settings in WSL '$selectedDistro'...")
+                    action(selectedDistro, bridgeEndpoint)
+                }
+            }
                 .getOrElse { error ->
                     WslClientConfigurator.CommandResult(
                         1,
@@ -533,53 +676,30 @@ class BridgeConfigurable : Configurable {
         }
     }
 
-    private fun configureAllClientRoutes(distro: String, client: String): WslClientConfigurator.CommandResult {
-        val current = McpBridgeService.getInstance().status()
-        val address = current.runningAddresses.firstOrNull()
-            ?: return WslClientConfigurator.CommandResult(1, current.error ?: "Bridge is not listening.")
-        val base = "http://$address:${current.listenerPort}"
-        for (route in current.routes.filter { it.target != null }) {
-            val serverName = WslClientConfigurator.serverNameForRoute(route.id)
-            val endpoint = "$base${route.publicPath}"
-            val result = when (client) {
-                "codex" -> WslClientConfigurator.configureCodex(distro, endpoint, serverName)
-                "claude" -> WslClientConfigurator.configureClaudeCode(distro, endpoint, serverName)
-                else -> WslClientConfigurator.configureCopilotCli(distro, endpoint, serverName)
-            }
-            if (!result.succeeded) return result
+    private fun updateWslActionStatus(message: String) {
+        ApplicationManager.getApplication().invokeLater {
+            if (root != null) status.text = message
         }
-        return WslClientConfigurator.CommandResult(0, "Configured ${current.routes.size} MCP routes.")
+    }
+
+    private fun configureAllClientRoutes(
+        distro: String,
+        client: String,
+        onRoute: (String) -> Unit = {},
+    ): WslClientConfigurator.CommandResult {
+        return wslClientRoutes.configure(distro, client, onRoute)
     }
 
     private fun removeAllClientRoutes(distro: String, client: String): WslClientConfigurator.CommandResult {
-        val current = McpBridgeService.getInstance().status()
-        val routeNames = current.routes.map { route -> WslClientConfigurator.serverNameForRoute(route.id) }
-        var firstFailure: WslClientConfigurator.CommandResult? = null
-        routeNames.forEach { serverName ->
-            val result = when (client) {
-                "codex" -> WslClientConfigurator.removeCodex(distro, serverName)
-                "claude" -> WslClientConfigurator.removeClaudeCode(distro, serverName)
-                else -> WslClientConfigurator.removeCopilotCli(distro, serverName)
-            }
-            if (!result.succeeded && firstFailure == null) firstFailure = result
-        }
-        return firstFailure ?: WslClientConfigurator.CommandResult(0, "Removed ${routeNames.size} MCP routes.")
+        return wslClientRoutes.remove(distro, client)
     }
 
     private fun endpoint(): String {
-        val bridge = McpBridgeService.getInstance().status()
-        val address = bridge.runningAddresses.firstOrNull()
-            ?: throw IllegalStateException(bridge.error ?: "Enable the bridge and select a network interface first.")
-        val path = bridge.routes.firstOrNull()?.publicPath ?: "/stream"
-        return "http://$address:${BridgeSettings.getInstance().snapshot().listenerPort}$path"
+        return endpointService.endpoint(McpBridgeService.getInstance().status().routes.firstOrNull()?.publicPath ?: "/stream")
     }
 
     private fun httpEndpoint(): String {
-        val bridge = McpBridgeService.getInstance().status()
-        val address = bridge.runningAddresses.firstOrNull()
-            ?: throw IllegalStateException(bridge.error ?: "Enable the bridge and select a network interface first.")
-        val path = bridge.routes.firstOrNull()?.publicPath ?: "/stream"
-        return "http://$address:${BridgeSettings.getInstance().snapshot().listenerPort}$path"
+        return endpointService.endpoint(McpBridgeService.getInstance().status().routes.firstOrNull()?.publicPath ?: "/stream")
     }
 
     private fun uiProfiles(state: BridgeSettings.State): List<BridgeSettings.ServerProfile> =
@@ -610,12 +730,7 @@ class BridgeConfigurable : Configurable {
         val current = McpBridgeService.getInstance().status()
         clientEndpoint.text = runCatching { "WSL HTTP endpoint: ${httpEndpoint()}" }.getOrElse { "WSL endpoint: start the bridge first" }
         genericConfig.text = runCatching {
-            val address = current.runningAddresses.firstOrNull() ?: error("Bridge is not listening")
-            val base = "http://$address:${current.listenerPort}"
-            WslClientConfigurator.genericJson(current.routes.associate { route ->
-                val name = WslClientConfigurator.serverNameForRoute(route.id)
-                name to "$base${route.publicPath}"
-            })
+            WslClientConfigurator.genericJson(endpointService.endpoints(current))
         }.getOrDefault("Start the bridge to generate a configuration.")
         status.text = when {
             current.error != null -> "Status: ${current.error}"

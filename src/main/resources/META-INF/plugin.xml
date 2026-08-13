@@ -6,6 +6,8 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.BridgeSharedSettings"/>
+        <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.BridgeLocalSettings"/>
         <applicationService serviceImplementation="io.github.dornol.mcpwslbridge.BridgeSettings"/>
         <applicationService
                 serviceImplementation="io.github.dornol.mcpwslbridge.McpBridgeService"/>

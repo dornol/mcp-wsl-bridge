@@ -1,10 +1,16 @@
 package io.github.dornol.mcpwslbridge
 
 import kotlin.test.Test
+import kotlin.test.AfterTest
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class WslClientConfiguratorTest {
+    @AfterTest
+    fun clearConfiguratorCaches() {
+        WslClientConfigurator.clearCaches()
+    }
+
     @Test
     fun `codex configuration removes and adds the named server using login shell`() {
         val commands = mutableListOf<List<String>>()
@@ -21,7 +27,7 @@ class WslClientConfiguratorTest {
             val result = WslClientConfigurator.configureCodex("Ubuntu", "http://172.20.1.1:64343/stream")
 
             assertTrue(result.succeeded)
-            assertEquals(4, commands.size)
+            assertEquals(3, commands.size)
             assertEquals("Ubuntu", commands[0][2])
             val commandText = commands.joinToString(" ") { it.joinToString(" ") }.replace("'", "")
             assertTrue(commandText.contains("codex mcp remove intellij-wsl-bridge"))
@@ -120,6 +126,27 @@ class WslClientConfiguratorTest {
 
             assertTrue(!result.succeeded)
             assertTrue(result.output.contains("not installed"))
+        } finally {
+            WslClientConfigurator.commandRunner = previous
+        }
+    }
+
+    @Test
+    fun `unavailable client command is reported without configuring it`() {
+        val commands = mutableListOf<List<String>>()
+        val previous = WslClientConfigurator.commandRunner
+        WslClientConfigurator.commandRunner = { command ->
+            commands += command
+            when {
+                command.any { it.contains("getent passwd") } -> WslClientConfigurator.CommandResult(0, "/bin/sh")
+                command.lastOrNull()?.contains("command") == true -> WslClientConfigurator.CommandResult(1, "not found")
+                else -> WslClientConfigurator.CommandResult(0, "")
+            }
+        }
+        try {
+            assertTrue(!WslClientConfigurator.isCommandAvailable("Ubuntu", "claude"))
+            assertTrue(commands.any { it.lastOrNull()?.contains("command") == true })
+            assertTrue(commands.none { it.joinToString(" ").contains("claude mcp") })
         } finally {
             WslClientConfigurator.commandRunner = previous
         }

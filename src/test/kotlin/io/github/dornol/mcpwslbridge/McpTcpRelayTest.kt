@@ -15,7 +15,7 @@ class McpTcpRelayTest {
         val targetServer = ServerSocket(0)
         val bridgeServer = ServerSocket(0)
         val target = McpTarget("127.0.0.1", targetServer.localPort, "test")
-        val relay = McpTcpRelay(executor) { target }
+        val relay = McpTcpRelay(executor, targetProvider = { target })
 
         val targetFuture = executor.submit<String> {
             targetServer.accept().use { socket ->

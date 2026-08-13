@@ -216,16 +216,17 @@ class McpBridgeServiceTest {
         }
         val settings = enabledSettings(freeConsecutivePort()).apply {
             update(snapshot().apply {
-                configuredCodexDistros = mutableListOf("Ubuntu", "Debian")
+                configuredCodexDistros = mutableListOf("Ubuntu", "Debian", "Ubuntu-24.04")
                 configuredClaudeDistros = mutableListOf("Debian")
                 configuredCopilotDistros = mutableListOf("Arch")
             })
         }
-        val service = service(settings)
+        val service = service(settings, wslDistributions = listOf("Ubuntu", "Debian", "Arch"))
         try {
             await {
                 val text = commands.joinToString(" ") { it.joinToString(" ") }.replace("'", "")
                 text.contains("-d Ubuntu") && text.contains("-d Debian") && text.contains("-d Arch") &&
+                    !text.contains("-d Ubuntu-24.04") &&
                     text.contains("codex mcp add") && text.contains("claude mcp add") && text.contains("copilot mcp add")
             }
         } finally {
@@ -234,10 +235,15 @@ class McpBridgeServiceTest {
         }
     }
 
-    private fun service(settings: BridgeSettings, addresses: MutableList<String> = mutableListOf("127.0.0.1")): McpBridgeService = McpBridgeService(
+    private fun service(
+        settings: BridgeSettings,
+        addresses: MutableList<String> = mutableListOf("127.0.0.1"),
+        wslDistributions: List<String> = emptyList(),
+    ): McpBridgeService = McpBridgeService(
         settingsProvider = { settings },
         targetResolver = McpTargetResolver(optionsPathProvider = { error("manual target must not read IntelliJ options") }),
         addressesProvider = { addresses.toList() },
+        wslDistributionsProvider = { wslDistributions },
         experimentalHttpProxyEnabled = false,
     )
 
