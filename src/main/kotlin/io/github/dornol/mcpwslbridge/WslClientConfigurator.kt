@@ -6,6 +6,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 object WslClientConfigurator {
@@ -31,11 +32,27 @@ object WslClientConfigurator {
     }
 
     internal var commandRunner: (List<String>) -> CommandResult = ::execute
+    private val loginShells = ConcurrentHashMap<String, String>()
+    @Volatile private var cachedDistributions: List<String>? = null
+    @Volatile private var distributionsCachedAt: Long = 0
 
-    fun distributions(): List<String> {
+    fun distributions(forceRefresh: Boolean = false): List<String> {
         if (!SystemInfo.isWindows) return emptyList()
+        val now = System.currentTimeMillis()
+        cachedDistributions?.takeIf { !forceRefresh && now - distributionsCachedAt < DISTRIBUTION_CACHE_MILLIS }?.let { return it }
         val result = commandRunner(listOf("wsl.exe", "-l", "-q"))
-        return if (result.succeeded) parseDistributions(result.output) else emptyList()
+        val distributions = if (result.succeeded) parseDistributions(result.output) else emptyList()
+        cachedDistributions = distributions
+        distributionsCachedAt = now
+        return distributions
+    }
+
+    fun refreshDistributions(): List<String> = distributions(forceRefresh = true)
+
+    internal fun clearCaches() {
+        loginShells.clear()
+        cachedDistributions = null
+        distributionsCachedAt = 0
     }
 
     fun configureCodex(distro: String, endpoint: String): CommandResult {
@@ -70,6 +87,9 @@ object WslClientConfigurator {
             listOf("copilot", "mcp", "add", "--transport", "http", serverName, endpoint),
         )
     }
+
+    fun isCommandAvailable(distro: String, command: String): Boolean =
+        runInWsl(distro, listOf("command", "-v", command)).succeeded
 
     fun removeCodex(distro: String, serverName: String): CommandResult =
         runInWsl(distro, listOf("codex", "mcp", "remove", serverName))
@@ -112,8 +132,10 @@ object WslClientConfigurator {
     }
 
     private fun loginShellFor(distro: String): String {
-        val result = commandRunner(listOf("wsl.exe", "-d", distro, "--", "sh", "-lc", "getent passwd \"$(id -u)\" | cut -d: -f7"))
-        return result.output.lineSequence().firstOrNull { it.startsWith('/') } ?: "/bin/sh"
+        return loginShells.computeIfAbsent(distro) {
+            val result = commandRunner(listOf("wsl.exe", "-d", distro, "--", "sh", "-lc", "getent passwd \"$(id -u)\" | cut -d: -f7"))
+            result.output.lineSequence().firstOrNull { it.startsWith('/') } ?: "/bin/sh"
+        }
     }
 
     /**
@@ -179,6 +201,7 @@ object WslClientConfigurator {
     }
 
     private const val LOOPBACK_PROXY_PORT = 64344
+    private const val DISTRIBUTION_CACHE_MILLIS = 5_000L
     private const val COMMAND_TIMEOUT_SECONDS = 30L
     private const val TIMEOUT_EXIT_CODE = 124
     private const val PROXY_DIRECTORY = "\$HOME/.local/share/mcp-wsl-bridge"

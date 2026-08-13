@@ -66,4 +66,22 @@ class BridgeSettingsTest {
         snapshot.servers[0].displayName = "changed"
         assertEquals("IDE Index", settings.snapshot().servers[0].displayName)
     }
+
+    @Test
+    fun `state can be split into shareable and local parts and restored`() {
+        val original = BridgeSettings.State(
+            listenerPort = 65000,
+            selectedAddresses = mutableListOf("10.0.0.2"),
+            wslDistro = "Ubuntu",
+            authEnabled = true,
+            authToken = "secret",
+            configuredClaudeDistros = mutableListOf("Ubuntu"),
+        )
+        val restored = BridgeSettings.State.from(original.shared(), original.local())
+        assertEquals(original.listenerPort, restored.listenerPort)
+        assertEquals(original.selectedAddresses, restored.selectedAddresses)
+        assertEquals(original.wslDistro, restored.wslDistro)
+        assertEquals(original.authToken, restored.authToken)
+        assertEquals(original.configuredClaudeDistros, restored.configuredClaudeDistros)
+    }
 }

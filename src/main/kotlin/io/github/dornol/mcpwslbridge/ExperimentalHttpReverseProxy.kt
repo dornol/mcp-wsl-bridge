@@ -38,7 +38,11 @@ class ExperimentalHttpReverseProxy(
         start(address, port, listOf(McpRoute("/", target, "/")))
     }
 
-    fun start(address: String, port: Int, routes: List<McpRoute>) {
+    fun start(address: String, port: Int, target: McpTarget, authToken: String?) {
+        start(address, port, listOf(McpRoute("/", target, "/")), authToken)
+    }
+
+    fun start(address: String, port: Int, routes: List<McpRoute>, authToken: String? = null) {
         if (servers.containsKey(address)) return
         require(routes.isNotEmpty()) { "At least one MCP route is required." }
         val normalizedRoutes = routes.map { route ->
@@ -51,7 +55,7 @@ class ExperimentalHttpReverseProxy(
             "MCP public paths must be unique."
         }
         val server = HttpServer.create(InetSocketAddress(address, port), 32)
-        server.createContext("/") { exchange -> forward(exchange, normalizedRoutes) }
+        server.createContext("/") { exchange -> forward(exchange, normalizedRoutes, authToken) }
         server.executor = executor
         server.start()
         servers[address] = server
@@ -64,11 +68,14 @@ class ExperimentalHttpReverseProxy(
         servers.clear()
     }
 
-    private fun forward(exchange: HttpExchange, routes: List<McpRoute>) {
+    private fun forward(exchange: HttpExchange, routes: List<McpRoute>, authToken: String?) {
         val exchangeId = exchangeSequence.incrementAndGet()
         val startedAt = System.nanoTime()
         activeExchanges.add(exchange)
         try {
+            if (authToken != null && queryParameter(exchange.requestURI.rawQuery, "token") != authToken) {
+                return sendUnauthorized(exchange)
+            }
             val route = routes.firstOrNull { matches(it.publicPath, exchange.requestURI.rawPath) }
                 ?: return sendNotFound(exchange)
             val sessionId = exchange.requestHeaders.getFirst("Mcp-Session-Id")
@@ -169,7 +176,9 @@ class ExperimentalHttpReverseProxy(
             request.setHeader("Content-Type", "application/json")
         }
         val body = if (requestBytes.isNotEmpty()) HttpRequest.BodyPublishers.ofByteArray(requestBytes) else HttpRequest.BodyPublishers.noBody()
-        return client.send(request.method(requestMethod, body).build(), bodyHandler)
+        val upstreamQuery = stripTokenParameter(exchange.requestURI.rawQuery)
+        val upstreamUri = URI("http", null, route.target.host, route.target.port, targetPath, upstreamQuery, null)
+        return client.send(request.uri(upstreamUri).method(requestMethod, body).build(), bodyHandler)
     }
 
     private fun initializeUpstream(route: McpRoute, exchange: HttpExchange, body: ByteArray, exchangeId: Long): String? {
@@ -296,6 +305,27 @@ class ExperimentalHttpReverseProxy(
         exchange.sendResponseHeaders(404, -1)
         exchange.close()
     }
+
+    private fun sendUnauthorized(exchange: HttpExchange) {
+        exchange.responseHeaders.set("WWW-Authenticate", "Bearer")
+        exchange.sendResponseHeaders(401, -1)
+        exchange.close()
+    }
+
+    private fun queryParameter(query: String?, name: String): String? =
+        query.orEmpty().split('&')
+            .asSequence()
+            .mapNotNull { item ->
+                val parts = item.split('=', limit = 2)
+                if (parts.firstOrNull() == name) parts.getOrNull(1) else null
+            }
+            .firstOrNull()
+
+    private fun stripTokenParameter(query: String?): String? =
+        query.orEmpty().split('&')
+            .filter { it.isNotBlank() && !it.startsWith("token=") }
+            .joinToString("&")
+            .ifBlank { null }
 
     private fun sendSessionExpired(exchange: HttpExchange) {
         exchange.responseHeaders.add("Connection", "close")

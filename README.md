@@ -21,7 +21,7 @@ The plugin detects the port saved by the built-in JetBrains MCP Server and falls
 3. Select the `vEthernet (WSL)` IPv4 address (the plugin marks likely WSL interfaces).
 4. Enable the bridge and apply settings. The default listener port is `64343`.
 5. The built-in **JetBrains MCP** route is always present and auto-detects its port. To add the IDE Index MCP route, click **Add IDE Index MCP**. Its MCP path is `/index-mcp/streamable-http`, target host is `127.0.0.1`, and the bridge probes around the default port `29170`.
-6. In the **WSL Client Configuration** section, choose a WSL distribution and select either **Codex**, **Claude Code**, or **GitHub Copilot CLI**. **Apply to WSL** registers every enabled route as a separate MCP server. The **Others** tab copies a generic multi-server streamable HTTP JSON entry.
+6. In the **WSL Client Configuration** section, choose a WSL distribution and select either **Codex**, **Claude Code**, or **GitHub Copilot CLI**. The panel shows CLI availability, provides **Test connection**, and **Apply to WSL** registers every enabled route as a separate MCP server. The **Others** tab copies a generic multi-server streamable HTTP JSON entry.
 7. In WSL, use its default gateway as the Windows host IP:
 
    ```sh
@@ -29,6 +29,8 @@ The plugin detects the port saved by the built-in JetBrains MCP Server and falls
    ```
 
 8. Configure another client with the displayed route URLs, for example `http://<gateway>:64343/index-mcp/streamable-http`.
+
+The bridge can optionally require a generated token for WSL HTTP endpoints. The token is stored locally and appended to generated client URLs. Imported WSL client history can be cleared with **Reset imported WSL history**; this does not remove entries already written to a WSL client.
 
 ## Security
 
